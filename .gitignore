@@ -1,0 +1,76 @@
+# ============================================================================
+# SECRETS
+# ============================================================================
+
+# Directories
+# (none - secrets are typically files)
+
+# Files
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials.json
+
+# ============================================================================
+# GO
+# ============================================================================
+
+# Directories
+bin/*
+!bin/.gitkeep
+vendor/
+.cache/
+
+# Files
+# Root-level stray binary from `go build` without -o; keep karoo/ source tracked
+/karoo
+!/karoo/
+coverage.out
+coverage.html
+coverage.txt
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.prof
+*.log
+*.out
+*.pid
+*.seed
+*.pid.lock
+go.work
+go.work.sum
+config.json
+TODO.md
+.nexor/
+
+# ============================================================================
+# EDITORS
+# ============================================================================
+
+# Directories
+.vscode/
+.idea/
+
+# Files
+*.swp
+*.swo
+*~
+*.sublime-*
+
+# ============================================================================
+# OS
+# ============================================================================
+
+# Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
