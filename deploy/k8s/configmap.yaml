@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: karoo-config
+  namespace: karoo
+  labels:
+    app: karoo
+  annotations:
+    description: "Karoo Stratum Proxy configuration"
+data:
+  config.json: |
+    {
+      "proxy": {
+        "listen": ":3334",
+        "read_buf": 4096,
+        "write_buf": 4096
+      },
+      "upstream": {
+        "url": "stratum+tcp://pool.example.com:3333",
+        "tls": false,
+        "insecure_skip_verify": false
+      },
+      "http": {
+        "listen": ":8080",
+        "pprof": false
+      },
+      "vardiff": {
+        "enabled": true,
+        "min_difficulty": 16,
+        "max_difficulty": 65536,
+        "target_time": 15,
+        "retarget_time": 90
+      },
+      "compat": {
+        "strict_broadcast": false
+      }
+    }

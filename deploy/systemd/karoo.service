@@ -1,0 +1,56 @@
+[Unit]
+Description=Karoo Stratum V1 Proxy for Mining Operations
+Documentation=https://github.com/carlosrabelo/karoo
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/karoo/config.json
+
+[Service]
+Type=simple
+User=karoo
+Group=karoo
+ExecStart=/usr/local/bin/karoo -config /etc/karoo/config.json -idle_grace_ms 15000
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=3
+TimeoutStartSec=30
+TimeoutStopSec=30
+TimeoutStopSec=30
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/karoo /var/log/karoo /var/lib/karoo
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# Resource limits
+LimitNOFILE=65535
+LimitNPROC=4096
+LimitAS=infinity
+LimitRSS=infinity
+LimitCORE=infinity
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=karoo
+
+# Environment
+Environment=GO_ENV=production
+
+[Install]
+WantedBy=multi-user.target
