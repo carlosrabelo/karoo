@@ -6,7 +6,7 @@ MAKEFLAGS += --no-print-directory
 	docker-compose-logs docker-compose-up fmt help info install \
 	install-system k8s-apply k8s-delete k8s-logs k8s-namespace k8s-status lint \
 	mod-tidy quality run systemd systemd-logs systemd-status systemd-uninstall \
-	test test-coverage testing uninstall utilities vet version
+	test test-coverage testing uninstall uninstall-system utilities vet version
 
 GO         := go
 BINARY_NAME := karoo
@@ -30,10 +30,10 @@ help: ## Show available targets
 ## Build & run
 
 build: ## Compile Stratum proxy binary
-	./.make/build.sh
+	@./.make/build.sh
 
 build-all: ## Cross-compile for multiple platforms
-	./.make/build-all.sh
+	@./.make/build-all.sh
 
 run: build ## Execute proxy with config.json
 	@if [ ! -f "$(RUN_CONFIG)" ]; then \
@@ -42,29 +42,32 @@ run: build ## Execute proxy with config.json
 	fi
 	@$(BINARY) -config $(RUN_CONFIG)
 
-install: build ## Build as user, install to ~/.local/bin
+install: ## Install to ~/.local/bin (requires prior make build)
 	@./.make/install.sh
 
-install-system: build ## Build as user, install to /usr/local/bin (sudo only for copy)
+install-system: ## Install to /usr/local/bin (requires prior make build; sudo only for copy)
 	@SYSTEM=1 ./.make/install.sh
 
-uninstall: ## Remove from ~/.local/bin and /usr/local/bin (sudo only if needed)
+uninstall: ## Remove from ~/.local/bin (sudo only if needed)
 	@./.make/uninstall.sh
+
+uninstall-system: ## Remove from /usr/local/bin (sudo only if needed)
+	@SYSTEM=1 ./.make/uninstall.sh
 
 ## Test
 
 test: ## Run go test ./...
-	./.make/test.sh
+	@./.make/test.sh
 
 test-coverage: ## Run tests with coverage report
-	./.make/test-coverage.sh
+	@./.make/test-coverage.sh
 
 testing: test test-coverage ## Run complete test suite
 
 ## Quality
 
 lint: ## Run golangci-lint when available
-	./.make/lint.sh
+	@./.make/lint.sh
 
 fmt: ## Format Go sources with gofmt
 	$(GO) fmt ./...
@@ -76,7 +79,7 @@ mod-tidy: ## Run go mod tidy and verify
 	$(GO) mod tidy
 	$(GO) mod verify
 
-quality: lint fmt vet ## Run all quality checks
+quality: fmt lint ## Run all quality checks
 
 ## Utilities
 

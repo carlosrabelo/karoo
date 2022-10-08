@@ -1,8 +1,10 @@
-# Karoo Stratum Proxy
+# Karoo
 
-> Autor: Carlos Rabelo - contato@carlosrabelo.com.br
+Proxy Stratum V1 que agrega conexões de mineradores atrás de um único pool upstream.
 
-Karoo começou como um experimento de fim de semana: um proxy Stratum leve para permitir que um rack de Nerdminers compartilhasse uma única conexão upstream. Hoje ele evoluiu para um front-end Stratum V1 pronto para produção, mantendo os pools satisfeitos enquanto rigs CPU, GPU ou embarcadas martelam shares por trás. Este repositório contém exatamente esse proxy.
+[![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
+[![Go Version](https://img.shields.io/badge/Go-1.18%2B-blue.svg)](https://go.dev/)
+[![Release](https://img.shields.io/github/release/carlosrabelo/karoo.svg)](https://github.com/carlosrabelo/karoo/releases)
 
 ## Destaques
 
@@ -18,6 +20,8 @@ Karoo começou como um experimento de fim de semana: um proxy Stratum leve para 
 - Suporte a proxy SOCKS5 para conexões upstream
 
 ## Visão Geral
+
+Karoo começou como um experimento de fim de semana de Carlos Rabelo (contato@carlosrabelo.com.br): um proxy Stratum leve para permitir que um rack de Nerdminers compartilhasse uma única conexão upstream. Hoje ele evoluiu para um front-end Stratum V1 pronto para produção, mantendo os pools satisfeitos enquanto rigs CPU, GPU ou embarcadas martelam shares por trás.
 
 Karoo atua como intermediário entre mineradores e pools, expondo Stratum downstream e agregando conexões upstream e métricas.
 
@@ -47,7 +51,7 @@ Karoo atua como intermediário entre mineradores e pools, expondo Stratum downst
 
 ## Pré-requisitos
 
-- Go 1.18+
+- **Go 1.18+** — necessário para compilar a partir do código; [download](https://go.dev/dl/)
 - Linux ou macOS (Windows pode funcionar, mas não faz parte do CI)
 
 ## Instalação
@@ -65,7 +69,8 @@ Instale em `~/.local/bin` (padrão) ou em `/usr/local/bin` (sudo apenas na cópi
 ```bash
 make install
 make install-system
-make uninstall    # remove dos dois locais comuns
+make uninstall
+make uninstall-system
 ```
 
 ### Via Go Install
@@ -139,12 +144,13 @@ docs/              # Tutoriais e guia de configuração
 ## Desenvolvimento
 
 ```bash
-make build           # Compila o binário para bin/karoo
-make test            # Executa todos os testes
-make quality         # Formata, vet e lint
-make install         # Instala o binário em ~/.local/bin
-make install-system  # Instala o binário em /usr/local/bin
-make uninstall       # Remove dos dois locais comuns
+make build             # Compila o binário para bin/karoo
+make test              # Executa todos os testes
+make quality           # Formata, vet e lint
+make install           # Instala o binário em ~/.local/bin
+make install-system    # Instala o binário em /usr/local/bin
+make uninstall         # Remove de ~/.local/bin
+make uninstall-system  # Remove de /usr/local/bin
 ```
 
 ## Solução de Problemas

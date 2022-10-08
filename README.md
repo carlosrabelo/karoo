@@ -1,8 +1,10 @@
-# Karoo Stratum Proxy
+# Karoo
 
-> Author: Carlos Rabelo - contato@carlosrabelo.com.br
+Stratum V1 proxy that aggregates miner connections behind a single upstream pool.
 
-Karoo started as a weekend experiment: a lightweight Stratum proxy so a rack of Nerdminers could share a single upstream connection. The idea quickly grew into a production-ready Stratum V1 front-end that keeps upstream pools happy while CPU, GPU, or embedded rigs hammer away behind it. What ships in this repository is exactly that proxy.
+[![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
+[![Go Version](https://img.shields.io/badge/Go-1.18%2B-blue.svg)](https://go.dev/)
+[![Release](https://img.shields.io/github/release/carlosrabelo/karoo.svg)](https://github.com/carlosrabelo/karoo/releases)
 
 ## Highlights
 
@@ -18,6 +20,8 @@ Karoo started as a weekend experiment: a lightweight Stratum proxy so a rack of 
 - SOCKS5 proxy support for upstream connections
 
 ## Overview
+
+Karoo started as a weekend experiment by Carlos Rabelo (contato@carlosrabelo.com.br): a lightweight Stratum proxy so a rack of Nerdminers could share a single upstream connection. It grew into a production-ready Stratum V1 front-end that keeps upstream pools happy while CPU, GPU, or embedded rigs hammer away behind it.
 
 Karoo runs as an intermediary between miners and pools, exposing Stratum downstream while aggregating upstream connections and metrics.
 
@@ -47,7 +51,7 @@ Karoo runs as an intermediary between miners and pools, exposing Stratum downstr
 
 ## Prerequisites
 
-- Go 1.18+
+- **Go 1.18+** — required to build from source; [download](https://go.dev/dl/)
 - Linux or macOS (Windows may work but is not part of CI)
 
 ## Installation
@@ -65,7 +69,8 @@ Install to `~/.local/bin` (default), or system-wide to `/usr/local/bin` (sudo on
 ```bash
 make install
 make install-system
-make uninstall    # removes from both common locations
+make uninstall
+make uninstall-system
 ```
 
 ### Using Go Install
@@ -139,12 +144,13 @@ docs/              # Tutorials and configuration guide
 ## Development
 
 ```bash
-make build           # Compile binary to bin/karoo
-make test            # Run all tests
-make quality         # Format, vet, and lint
-make install         # Install binary to ~/.local/bin
-make install-system  # Install binary to /usr/local/bin
-make uninstall       # Remove from both common locations
+make build             # Compile binary to bin/karoo
+make test              # Run all tests
+make quality           # Format, vet, and lint
+make install           # Install binary to ~/.local/bin
+make install-system    # Install binary to /usr/local/bin
+make uninstall         # Remove from ~/.local/bin
+make uninstall-system  # Remove from /usr/local/bin
 ```
 
 ## Troubleshooting
