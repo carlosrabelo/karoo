@@ -1,0 +1,17 @@
+# Build outputs
+/build/
+/karoo
+config.json
+dist/
+
+# Editor and OS metadata
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Logs and profiles
+*.log
+*.out
+*.prof

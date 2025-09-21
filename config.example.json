@@ -1,0 +1,33 @@
+{
+  "proxy": {
+    "listen": ":3334",
+    "client_idle_ms": 180000,
+    "max_clients": 512,
+    "read_buf": 2048,
+    "write_buf": 2048
+  },
+  "upstream": {
+    "host": "pool.example.org",
+    "port": 3333,
+    "user": "wallet.worker",
+    "pass": "x",
+    "tls": false,
+    "insecure_skip_verify": false,
+    "backoff_min_ms": 1000,
+    "backoff_max_ms": 20000
+  },
+  "http": {
+    "listen": ":8080",
+    "pprof": true
+  },
+  "vardiff": {
+    "enabled": false,
+    "target_seconds": 18,
+    "min_diff": 8,
+    "max_diff": 16384,
+    "adjust_every_ms": 60000
+  },
+  "compat": {
+    "strict_broadcast": false
+  }
+}
