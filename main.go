@@ -27,6 +27,8 @@ import (
 	"time"
 )
 
+const proxyUserAgent = "karoo/v0.0.1"
+
 // ===================== Config =====================
 
 type Config struct {
@@ -297,7 +299,7 @@ func (u *Upstream) send(msg JSONMsg) (int64, error) {
 }
 
 func (u *Upstream) subscribeAuthorize() error {
-	if _, err := u.send(JSONMsg{Method: "mining.subscribe", Params: []interface{}{"/Karoo:1.0/"}}); err != nil {
+	if _, err := u.send(JSONMsg{Method: "mining.subscribe", Params: []interface{}{proxyUserAgent}}); err != nil {
 		return err
 	}
 	_, err := u.send(JSONMsg{Method: "mining.authorize", Params: []interface{}{u.cfg.Upstream.User, u.cfg.Upstream.Pass}})
@@ -344,16 +346,94 @@ type Proxy struct {
 	upReady atomic.Bool
 	readyMu sync.Mutex
 	readyCh chan struct{}
+
+	subMu       sync.Mutex
+	pendingSubs map[*Client]*int64
 }
 
 func NewProxy(cfg *Config) *Proxy {
 	return &Proxy{
-		cfg:     cfg,
-		up:      &Upstream{cfg: cfg},
-		mx:      &Metrics{},
-		clients: make(map[*Client]struct{}),
-		readyCh: make(chan struct{}),
+		cfg:         cfg,
+		up:          &Upstream{cfg: cfg},
+		mx:          &Metrics{},
+		clients:     make(map[*Client]struct{}),
+		readyCh:     make(chan struct{}),
+		pendingSubs: make(map[*Client]*int64),
 	}
+}
+
+func copyID(id *int64) *int64 {
+	if id == nil {
+		return nil
+	}
+	dup := new(int64)
+	*dup = *id
+	return dup
+}
+
+func (p *Proxy) upstreamReady() bool {
+	return p.upReady.Load() && p.up.ex2Size > 0 && p.up.ex1 != ""
+}
+
+func (p *Proxy) enqueuePendingSubscribe(cl *Client, id *int64) {
+	if p.upstreamReady() {
+		p.respondSubscribe(cl, copyID(id))
+		return
+	}
+	copy := copyID(id)
+	p.subMu.Lock()
+	defer p.subMu.Unlock()
+	if p.pendingSubs == nil {
+		p.pendingSubs = make(map[*Client]*int64)
+	}
+	// single pending subscribe per client; latest ID wins
+	p.pendingSubs[cl] = copy
+}
+
+func (p *Proxy) removePendingSubscribe(cl *Client) {
+	p.subMu.Lock()
+	defer p.subMu.Unlock()
+	delete(p.pendingSubs, cl)
+}
+
+func (p *Proxy) flushPendingSubscribes() {
+	p.subMu.Lock()
+	if len(p.pendingSubs) == 0 {
+		p.subMu.Unlock()
+		return
+	}
+	pending := make(map[*Client]*int64, len(p.pendingSubs))
+	for cl, id := range p.pendingSubs {
+		pending[cl] = id
+	}
+	// reset map so new subscribers can queue while we reply
+	p.pendingSubs = make(map[*Client]*int64)
+	p.subMu.Unlock()
+
+	for cl, id := range pending {
+		p.respondSubscribe(cl, id)
+	}
+}
+
+func (p *Proxy) respondSubscribe(cl *Client, id *int64) {
+	if !p.upstreamReady() {
+		p.enqueuePendingSubscribe(cl, id)
+		return
+	}
+	p.assignNoncePrefix(cl)
+	ex1Resp := p.up.ex1
+	ex2Resp := p.up.ex2Size
+	if cl.extraNoncePrefix != "" && cl.extraNonceTrim > 0 {
+		if p.up.ex2Size > cl.extraNonceTrim {
+			ex1Resp = ex1Resp + cl.extraNoncePrefix
+			ex2Resp = p.up.ex2Size - cl.extraNonceTrim
+		} else {
+			cl.extraNoncePrefix = ""
+			cl.extraNonceTrim = 0
+		}
+	}
+	resp := JSONMsg{ID: id, Result: []interface{}{[]interface{}{}, ex1Resp, ex2Resp}}
+	p.writeClient(cl, resp)
 }
 
 // ====== Accept loop ======
@@ -404,6 +484,7 @@ func (p *Proxy) acceptLoop(ctx context.Context) error {
 // ====== Client protocol ======
 func (p *Proxy) clientLoop(ctx context.Context, cl *Client) {
 	defer func() {
+		p.removePendingSubscribe(cl)
 		p.clMu.Lock()
 		delete(p.clients, cl)
 		p.clMu.Unlock()
@@ -439,42 +520,12 @@ func (p *Proxy) clientLoop(ctx context.Context, cl *Client) {
 
 		switch msg.Method {
 		case "mining.subscribe":
-			// Wait for extranonce data from upstream up to the configured timeout
-			if !p.upReady.Load() {
-				wait := make(chan struct{})
-				go func(ch chan struct{}) {
-					p.readyMu.Lock()
-					rc := p.readyCh
-					p.readyMu.Unlock()
-					select {
-					case <-rc:
-					case <-time.After(globalSubscribeWait):
-					}
-					close(ch)
-				}(wait)
-				<-wait
-			}
-			// If still not ready, send a friendly error so the miner retries
-			if !p.upReady.Load() || p.up.ex2Size <= 0 || p.up.ex1 == "" {
-				p.writeClient(cl, JSONMsg{ID: msg.ID, Result: false, Error: []interface{}{20, "Upstream not ready (no extranonce yet)", nil}})
+			if p.upstreamReady() {
+				p.respondSubscribe(cl, copyID(msg.ID))
 				break
 			}
-			p.assignNoncePrefix(cl)
-			ex1Resp := p.up.ex1
-			ex2Resp := p.up.ex2Size
-			if cl.extraNoncePrefix != "" && cl.extraNonceTrim > 0 {
-				if p.up.ex2Size > cl.extraNonceTrim {
-					ex1Resp = ex1Resp + cl.extraNoncePrefix
-					ex2Resp = p.up.ex2Size - cl.extraNonceTrim
-				} else {
-					// prefix would not fit: clear it to avoid inconsistency
-					cl.extraNoncePrefix = ""
-					cl.extraNonceTrim = 0
-				}
-			}
-			// Responde canônico: [[], ex1, ex2_size]
-			res := JSONMsg{ID: msg.ID, Result: []interface{}{[]interface{}{}, ex1Resp, ex2Resp}}
-			p.writeClient(cl, res)
+			p.enqueuePendingSubscribe(cl, msg.ID)
+			continue
 
 		case "mining.authorize":
 			if arr, ok := msg.Params.([]interface{}); ok && len(arr) > 0 {
@@ -672,6 +723,7 @@ func (p *Proxy) upstreamLoop(ctx context.Context) {
 							close(p.readyCh)
 						}
 						p.readyMu.Unlock()
+						p.flushPendingSubscribes()
 					} else if !p.upReady.Load() {
 						log.Printf("subscribe result missing extranonce fields: %v", msg.Result)
 					}
@@ -952,8 +1004,7 @@ func (p *Proxy) upstreamManager(ctx context.Context, idleGrace time.Duration) {
 // ===================== Utils/Globals =====================
 
 var (
-	pcfg                *Config
-	globalSubscribeWait time.Duration
+	pcfg *Config
 )
 
 const extraNoncePrefixBytes = 1
@@ -999,7 +1050,7 @@ func main() {
 	cfgPath := flag.String("config", "config.json", "config file path")
 	idleGraceMs := flag.Int("idle_grace_ms", 15000, "milliseconds to keep upstream alive with zero clients")
 	strictBroadcast := flag.Bool("strict_broadcast", false, "if true, only broadcast known mining methods (notify,set_difficulty)")
-	subscribeWaitMs := flag.Int("subscribe_wait_ms", 5000, "milliseconds to wait upstream subscribe (extranonce) before replying to client")
+	subscribeWaitMs := flag.Int("subscribe_wait_ms", 0, "deprecated: retained for backwards compatibility")
 	flag.Parse()
 
 	cfg, err := loadConfig(*cfgPath)
@@ -1008,7 +1059,9 @@ func main() {
 	}
 	cfg.Compat.StrictBroadcast = *strictBroadcast
 	pcfg = cfg
-	globalSubscribeWait = time.Duration(*subscribeWaitMs) * time.Millisecond
+	if *subscribeWaitMs > 0 {
+		log.Printf("subscribe_wait_ms is deprecated and no longer affects subscribe handling (ignored value: %dms)", *subscribeWaitMs)
+	}
 
 	px := NewProxy(cfg)
 	ctx, cancel := context.WithCancel(context.Background())

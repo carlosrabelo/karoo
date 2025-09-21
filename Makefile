@@ -9,6 +9,7 @@ help:
 	@echo "Available targets:"
 	@echo "  make help        # show this help (default target)"
 	@echo "  make build       # compile the local binary ($(BINARY))"
+	@echo "  make build-static # compile fully static binary ($(BINARY_STATIC))"
 	@echo "  make clean       # remove binary"
 	@echo "  make run         # execute using ./config.json"
 	@echo "  make docker      # build Docker image (karoo:latest)"
@@ -17,6 +18,8 @@ help:
 	@echo "Useful vars: VERSION=$(VERSION) BUILD_TIME=$(BUILD_TIME)"
 
 BINARY=build/karoo
+STATIC_SUFFIX?=-static
+BINARY_STATIC=$(BUILD_DIR)karoo$(STATIC_SUFFIX)
 BUILD_DIR=$(dir $(BINARY))
 SRC=main.go
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -24,6 +27,7 @@ BUILD_TIME=$(shell date +%Y-%m-%dT%H:%M:%S%z)
 LDFLAGS=-s -w -X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME)
 
 .PHONY: all build clean run docker systemd
+.PHONY: build-static
 
 all: build
 
@@ -31,6 +35,11 @@ build:
 	@echo "Building $(BINARY)..."
 	mkdir -p $(BUILD_DIR)
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) $(SRC)
+
+build-static:
+	@echo "Building static $(BINARY_STATIC)..."
+	mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=0 go build -trimpath -tags netgo -ldflags "$(LDFLAGS)" -o $(BINARY_STATIC) $(SRC)
 
 clean:
 	@echo "Cleaning..."

@@ -16,6 +16,7 @@ Karoo started as a weekend experiment: a lightweight Stratum proxy so a rack of 
 
 ```bash
 make build        # compile to build/karoo
+make build-static # compile to build/karoo-static (CGO disabled)
 make run          # run with ./config.json
 ```
 

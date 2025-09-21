@@ -1,8 +1,8 @@
 # Build outputs
 /build/
-/karoo
-config.json
 dist/
+config.json
+TODO.md
 
 # Editor and OS metadata
 .DS_Store
