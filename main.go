@@ -147,8 +147,6 @@ type Upstream struct {
 	br   *bufio.Reader
 	bw   *bufio.Writer
 
-	encMu sync.Mutex
-
 	// extranonce
 	ex1     string
 	ex2Size int
@@ -262,10 +260,14 @@ func (u *Upstream) dial(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	u.mu.Lock()
 	u.conn = c
 	u.br = bufio.NewReaderSize(c, u.cfg.Proxy.ReadBuf)
 	u.bw = bufio.NewWriterSize(c, u.cfg.Proxy.WriteBuf)
+	u.mu.Unlock()
+	u.respMu.Lock()
 	u.pending = make(map[int64]pendingReq)
+	u.respMu.Unlock()
 	return nil
 }
 
@@ -275,12 +277,14 @@ func (u *Upstream) close() {
 	if u.conn != nil {
 		_ = u.conn.Close()
 		u.conn = nil
+		u.br = nil
+		u.bw = nil
 	}
 }
 
 func (u *Upstream) sendRaw(line string) error {
-	u.encMu.Lock()
-	defer u.encMu.Unlock()
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	if u.conn == nil {
 		return errors.New("upstream nil")
 	}
@@ -306,6 +310,12 @@ func (u *Upstream) subscribeAuthorize() error {
 	return err
 }
 
+func (u *Upstream) isConnected() bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.conn != nil
+}
+
 // ===================== Clients =====================
 
 type Client struct {
@@ -329,6 +339,36 @@ type Client struct {
 
 	// vardiff (placeholder simples)
 	diff atomic.Int64
+
+	writeMu sync.Mutex
+}
+
+func (cl *Client) writeRaw(b []byte) error {
+	cl.writeMu.Lock()
+	defer cl.writeMu.Unlock()
+	if cl.bw == nil {
+		return errors.New("client writer nil")
+	}
+	if _, err := cl.bw.Write(b); err != nil {
+		return err
+	}
+	return cl.bw.Flush()
+}
+
+func (cl *Client) writeJSON(obj JSONMsg) error {
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	return cl.writeRaw(b)
+}
+
+func (cl *Client) writeLine(line string) error {
+	if !strings.HasSuffix(line, "\n") {
+		line += "\n"
+	}
+	return cl.writeRaw([]byte(line))
 }
 
 // ===================== Proxy Core =====================
@@ -533,23 +573,10 @@ func (p *Proxy) clientLoop(ctx context.Context, cl *Client) {
 					cl.worker = s
 				}
 			}
-			p.writeClient(cl, JSONMsg{ID: msg.ID, Result: true})
-			cl.handshakeDone.Store(true)
+			p.forwardToUpstream(cl, msg.Method, msg.Params, msg.ID)
 			break
 
 		case "mining.submit":
-			// encaminhar para upstream com novo id
-			if p.up.conn == nil {
-				p.writeClient(cl, JSONMsg{ID: msg.ID, Result: false, Error: []interface{}{-1, "Upstream down", nil}})
-				break
-			}
-			var origID *int64
-			if msg.ID != nil {
-				v := *msg.ID
-				orig := new(int64)
-				*orig = v
-				origID = orig
-			}
 			if arr, ok := msg.Params.([]interface{}); ok && len(arr) > 0 {
 				if cl.upUser == "" {
 					cl.upUser = p.cfg.Upstream.User
@@ -577,37 +604,12 @@ func (p *Proxy) clientLoop(ctx context.Context, cl *Client) {
 				}
 				msg.Params = arr
 			}
-			upID, err := p.up.send(JSONMsg{Method: "mining.submit", Params: msg.Params})
-			if err != nil {
-				p.writeClient(cl, JSONMsg{ID: msg.ID, Result: false, Error: []interface{}{-1, "Forward error", nil}})
-				break
-			}
-			p.up.respMu.Lock()
-			p.up.pending[upID] = pendingReq{cl: cl, method: "mining.submit", sent: time.Now(), origID: origID}
-			p.up.respMu.Unlock()
-
+			p.forwardToUpstream(cl, "mining.submit", msg.Params, msg.ID)
+			break
 		default:
 			// Generic pass-through for any mining.* call (e.g., mining.configure, extranonce.subscribe, suggest_*)
 			if strings.HasPrefix(msg.Method, "mining.") {
-				if p.up.conn == nil {
-					p.writeClient(cl, JSONMsg{ID: msg.ID, Result: false, Error: []interface{}{-1, "Upstream down", nil}})
-					break
-				}
-				var origID *int64
-				if msg.ID != nil {
-					v := *msg.ID
-					orig := new(int64)
-					*orig = v
-					origID = orig
-				}
-				upID, err := p.up.send(JSONMsg{Method: msg.Method, Params: msg.Params})
-				if err != nil {
-					p.writeClient(cl, JSONMsg{ID: msg.ID, Result: false, Error: []interface{}{-1, "Forward error", nil}})
-					break
-				}
-				p.up.respMu.Lock()
-				p.up.pending[upID] = pendingReq{cl: cl, method: msg.Method, sent: time.Now(), origID: origID}
-				p.up.respMu.Unlock()
+				p.forwardToUpstream(cl, msg.Method, msg.Params, msg.ID)
 				break
 			}
 			// Ignore anything that is not mining.* (or log if desired)
@@ -616,10 +618,24 @@ func (p *Proxy) clientLoop(ctx context.Context, cl *Client) {
 }
 
 func (p *Proxy) writeClient(cl *Client, obj JSONMsg) {
-	b, _ := json.Marshal(obj)
-	b = append(b, '\n')
-	_, _ = cl.bw.Write(b)
-	_ = cl.bw.Flush()
+	_ = cl.writeJSON(obj)
+}
+
+func (p *Proxy) forwardToUpstream(cl *Client, method string, params interface{}, id *int64) bool {
+	if !p.up.isConnected() {
+		p.writeClient(cl, JSONMsg{ID: id, Result: false, Error: []interface{}{-1, "Upstream down", nil}})
+		return false
+	}
+	origID := copyID(id)
+	upID, err := p.up.send(JSONMsg{Method: method, Params: params})
+	if err != nil {
+		p.writeClient(cl, JSONMsg{ID: id, Result: false, Error: []interface{}{-1, "Forward error", nil}})
+		return false
+	}
+	p.up.respMu.Lock()
+	p.up.pending[upID] = pendingReq{cl: cl, method: method, sent: time.Now(), origID: origID}
+	p.up.respMu.Unlock()
+	return true
 }
 
 // ====== Upstream loop ======
@@ -740,10 +756,7 @@ func (p *Proxy) upstreamLoop(ctx context.Context) {
 					} else {
 						msg.ID = nil
 					}
-					out, _ := json.Marshal(msg)
-					out = append(out, '\n')
-					_, _ = req.cl.bw.Write(out)
-					_ = req.cl.bw.Flush()
+					_ = req.cl.writeJSON(msg)
 					if req.method == "mining.submit" {
 						success := false
 						if b, ok := msg.Result.(bool); ok {
@@ -810,8 +823,7 @@ func (p *Proxy) broadcast(line string) {
 	p.clMu.RLock()
 	defer p.clMu.RUnlock()
 	for cl := range p.clients {
-		_, _ = cl.bw.WriteString(line + "\n")
-		_ = cl.bw.Flush()
+		_ = cl.writeLine(line)
 	}
 }
 
@@ -842,10 +854,7 @@ func (p *Proxy) adjustDiffOnce() {
 			d = int64(p.cfg.VarDiff.MinDiff)
 		}
 		msg := JSONMsg{Method: "mining.set_difficulty", Params: []interface{}{float64(d)}}
-		b, _ := json.Marshal(msg)
-		b = append(b, '\n')
-		_, _ = cl.bw.Write(b)
-		_ = cl.bw.Flush()
+		_ = cl.writeJSON(msg)
 	}
 }
 
