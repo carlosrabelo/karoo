@@ -1,20 +1,52 @@
 # Build outputs
 /build/
 dist/
+bin/*
+!bin/.gitkeep
 config.json
 TODO.md
 
-# Editor and OS metadata
-.DS_Store
-*.swp
-*.swo
+# Go specific
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+vendor/
+go.sum
+
+# IDE specific
 .idea/
 .vscode/
+*.sublime-*
 
-# Logs and profiles
+# Editor files
+*.swp
+*.swo
+*~
+
+# Logs and runtime
 *.log
 *.out
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage and profiling
+coverage.txt
+coverage.out
 *.prof
 
 # Cache
 .cache/
+go.work.sum
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
