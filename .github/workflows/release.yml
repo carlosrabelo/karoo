@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Create tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ inputs.tag }}
+          git push origin ${{ inputs.tag }}
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+
+          # Linux amd64
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
+            -trimpath -tags netgo \
+            -ldflags="-s -w -X main.version=${{ inputs.tag }} -X main.buildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            -o dist/karoo-linux-amd64 ./cmd/karoo
+
+          # Linux arm64
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build \
+            -trimpath -tags netgo \
+            -ldflags="-s -w -X main.version=${{ inputs.tag }} -X main.buildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            -o dist/karoo-linux-arm64 ./cmd/karoo
+
+          # Windows amd64
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build \
+            -trimpath -tags netgo \
+            -ldflags="-s -w -X main.version=${{ inputs.tag }} -X main.buildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            -o dist/karoo-windows-amd64.exe ./cmd/karoo
+
+          # macOS amd64
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build \
+            -trimpath -tags netgo \
+            -ldflags="-s -w -X main.version=${{ inputs.tag }} -X main.buildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            -o dist/karoo-darwin-amd64 ./cmd/karoo
+
+          # macOS arm64
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build \
+            -trimpath -tags netgo \
+            -ldflags="-s -w -X main.version=${{ inputs.tag }} -X main.buildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            -o dist/karoo-darwin-arm64 ./cmd/karoo
+
+      - name: Create archives
+        run: |
+          cd dist
+
+          # Create .tar.gz for Unix systems
+          tar -czf karoo-linux-amd64.tar.gz karoo-linux-amd64
+          tar -czf karoo-linux-arm64.tar.gz karoo-linux-arm64
+          tar -czf karoo-darwin-amd64.tar.gz karoo-darwin-amd64
+          tar -czf karoo-darwin-arm64.tar.gz karoo-darwin-arm64
+
+          # Create .zip for Windows
+          zip karoo-windows-amd64.zip karoo-windows-amd64.exe
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: ${{ inputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

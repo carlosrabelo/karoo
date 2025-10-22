@@ -1,0 +1,28 @@
+# Development Dockerfile with hot reload support
+FROM golang:1.22-alpine
+
+# Install development dependencies
+RUN apk add --no-cache git ca-certificates tzdata air curl
+
+# Set working directory
+WORKDIR /src
+
+# Copy go mod files
+COPY core/go.mod core/go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY core/ ./
+COPY config/ ../config/
+COPY .air.toml ./
+
+# Create non-root user for development
+RUN adduser -D -s /bin/sh karoo karoo && \
+    chown -R karoo:karoo /src
+USER karoo
+
+# Expose ports
+EXPOSE 3334 8080
+
+# Default command uses air for hot reload
+CMD ["air", "-c", ".air.toml"]

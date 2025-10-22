@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  karoo:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: karoo
+    restart: unless-stopped
+    volumes:
+      - ./config/config.example.json:/app/config.json:ro
+    environment:
+      - GIN_MODE=release
+    ports:
+      - "8080:8080"

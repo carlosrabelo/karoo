@@ -1,0 +1,59 @@
+# air.toml - Live reload for Go applications
+root = "."
+testdata_dir = "testdata"
+tmp_dir = "tmp"
+
+[build]
+  # Comandos para build
+  cmd = "CGO_ENABLED=0 go build -trimpath -tags netgo -ldflags='-s -w -X main.version=dev -X main.buildTime=$(date +%Y-%m-%dT%H:%M:%S%z)' -o ./tmp/main ./core/cmd/karoo"
+  # Binário gerado
+  bin = "tmp/main"
+  # Extensões de arquivos para watch
+  include_ext = ["go", "tpl", "tmpl", "html", "json", "yaml", "yml"]
+  # Extensões para ignorar
+  exclude_ext = ["_test.go"]
+  # Diretórios para incluir
+  include_dir = []
+  # Diretórios para ignorar
+  exclude_dir = ["assets", "tmp", "vendor", ".cache", "testdata", "bin"]
+  # Arquivos para ignorar
+  exclude_file = []
+  # Arquivos para watch especificamente
+  include_full_file = []
+  # Segue links simbólicos
+  follow_symlink = true
+  # Build args
+  args = []
+  # Flags para passar ao binário
+  bin_args = ["-config", "../config.json"]
+  # Tempo de espera após mudanças
+  delay = 1000
+  # Para de executar antigo binário antes de iniciar novo
+  stop_on_root = false
+  # Envia sinal de interrupção antes de kill
+  send_interrupt = false
+  # Tempo de espera antes de kill
+  kill_delay = "0s"
+
+[log]
+  # Nível de log (debug ou info)
+  level = "info"
+  # Tempo de formatação
+  time = true
+  # Apenas logs principais
+  main_only = false
+
+[color]
+  # Customizar cores
+  main = "magenta"
+  watcher = "cyan"
+  build = "yellow"
+  runner = "green"
+
+[misc]
+  # Limpa tmp em cada build
+  clean_on_exit = false
+
+[screen]
+  clear_on_rebuild = true
+  keep_scroll = true

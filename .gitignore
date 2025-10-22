@@ -1,0 +1,20 @@
+# Build outputs
+/build/
+dist/
+config.json
+TODO.md
+
+# Editor and OS metadata
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Logs and profiles
+*.log
+*.out
+*.prof
+
+# Cache
+.cache/
