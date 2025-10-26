@@ -11,6 +11,12 @@
     "port": 3333,
     "user": "wallet.worker",
     "pass": "x",
+    "proxy": {
+      "type": "",
+      "address": "",
+      "user": "",
+      "pass": ""
+    },
     "tls": false,
     "insecure_skip_verify": false,
     "backoff_min_ms": 1000,

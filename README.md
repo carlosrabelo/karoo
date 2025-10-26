@@ -11,6 +11,7 @@ Karoo started as a weekend experiment: a lightweight Stratum proxy so a rack of 
 - **Share accounting & reporting** – detailed logs per worker (latency, spacing between accepted shares) plus periodic aggregate reports and HTTP `/status` / `/healthz` endpoints.
 - **VarDiff scaffold** – optional, per-worker difficulty adjustments with room to grow into a full moving-average controller.
 - **Flexible transport** – TCP today, with plumbing designed to extend to TLS or additional wire protocols.
+- **Upstream proxies** – dial pools through SOCKS4/SOCKS5 proxies (with optional auth) when direct egress is not allowed.
 
 ## Getting Started
 
@@ -29,8 +30,36 @@ The default configuration listens on `:3334` for Stratum clients and connects to
 - `proxy.client_idle_ms` – disconnect idle miners after the specified timeout.
 - `compat.strict_broadcast` – when `false`, forwards unfamiliar `mining.*` messages unchanged.
 - `vardiff.enabled` – toggle simple per-worker VarDiff adjustments.
+- `upstream.proxy.*` – optional upstream SOCKS proxy definition (`type`, `address`, `user`, `pass`).
 
 See the sample config in `config/config.example.json` for a full reference.
+
+### Using an Upstream Proxy
+
+If your pool must be reached through a SOCKS proxy, set the new `upstream.proxy` block or pass `--proxy` flags:
+
+```json
+"upstream": {
+  "host": "pool.example.org",
+  "port": 3333,
+  "user": "wallet.worker",
+  "pass": "x",
+  "proxy": {
+    "type": "socks5",
+    "address": "127.0.0.1:9050",
+    "user": "alice",
+    "pass": "secret"
+  }
+}
+```
+
+Command-line overrides follow the same idea:
+
+```bash
+karoo --proxy socks5://127.0.0.1:9050 --proxy-user alice --proxy-pass secret
+```
+
+`--proxy` accepts `socks4://` or `socks5://` URLs; omit the scheme to default to SOCKS5. When credentials are embedded in the URL they override the separate `--proxy-user/--proxy-pass` flags.
 
 ## Development Workflow
 

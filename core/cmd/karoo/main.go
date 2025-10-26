@@ -5,17 +5,20 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
 	"math/rand"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -39,14 +42,20 @@ type Config struct {
 		WriteBuf     int    `json:"write_buf"`
 	} `json:"proxy"`
 	Upstream struct {
-		Host               string `json:"host"`
-		Port               int    `json:"port"`
-		User               string `json:"user"`
-		Pass               string `json:"pass"`
-		TLS                bool   `json:"tls"`
-		InsecureSkipVerify bool   `json:"insecure_skip_verify"`
-		BackoffMinMs       int    `json:"backoff_min_ms"`
-		BackoffMaxMs       int    `json:"backoff_max_ms"`
+		Host  string `json:"host"`
+		Port  int    `json:"port"`
+		User  string `json:"user"`
+		Pass  string `json:"pass"`
+		Proxy struct {
+			Type    string `json:"type"`
+			Address string `json:"address"`
+			User    string `json:"user"`
+			Pass    string `json:"pass"`
+		} `json:"proxy"`
+		TLS                bool `json:"tls"`
+		InsecureSkipVerify bool `json:"insecure_skip_verify"`
+		BackoffMinMs       int  `json:"backoff_min_ms"`
+		BackoffMaxMs       int  `json:"backoff_max_ms"`
 	} `json:"upstream"`
 	HTTP struct {
 		Listen string `json:"listen"`
@@ -251,25 +260,247 @@ func diffFromBits(bits string) float64 {
 
 func (u *Upstream) dial(ctx context.Context) error {
 	addr := net.JoinHostPort(u.cfg.Upstream.Host, strconv.Itoa(u.cfg.Upstream.Port))
-	var c net.Conn
-	var err error
-	if u.cfg.Upstream.TLS {
-		conf := &tls.Config{InsecureSkipVerify: u.cfg.Upstream.InsecureSkipVerify}
-		c, err = tls.Dial("tcp", addr, conf)
-	} else {
-		c, err = net.DialTimeout("tcp", addr, 10*time.Second)
-	}
+	rawConn, err := u.dialTransport(ctx, addr)
 	if err != nil {
 		return err
 	}
+
+	conn := rawConn
+	if u.cfg.Upstream.TLS {
+		conf := &tls.Config{InsecureSkipVerify: u.cfg.Upstream.InsecureSkipVerify}
+		tlsConn := tls.Client(rawConn, conf)
+		if err := tlsConn.Handshake(); err != nil {
+			_ = rawConn.Close()
+			return err
+		}
+		conn = tlsConn
+	}
+
 	u.mu.Lock()
-	u.conn = c
-	u.br = bufio.NewReaderSize(c, u.cfg.Proxy.ReadBuf)
-	u.bw = bufio.NewWriterSize(c, u.cfg.Proxy.WriteBuf)
+	u.conn = conn
+	u.br = bufio.NewReaderSize(conn, u.cfg.Proxy.ReadBuf)
+	u.bw = bufio.NewWriterSize(conn, u.cfg.Proxy.WriteBuf)
 	u.mu.Unlock()
 	u.respMu.Lock()
 	u.pending = make(map[int64]pendingReq)
 	u.respMu.Unlock()
+	return nil
+}
+
+func (u *Upstream) dialTransport(ctx context.Context, target string) (net.Conn, error) {
+	p := u.cfg.Upstream.Proxy
+	if strings.TrimSpace(p.Type) != "" && strings.TrimSpace(p.Address) != "" {
+		return dialViaProxy(ctx, strings.ToLower(strings.TrimSpace(p.Type)), strings.TrimSpace(p.Address), target, p.User, p.Pass)
+	}
+	d := &net.Dialer{Timeout: 10 * time.Second}
+	return d.DialContext(ctx, "tcp", target)
+}
+
+func dialViaProxy(ctx context.Context, proxyType, proxyAddr, target, user, pass string) (net.Conn, error) {
+	switch proxyType {
+	case "socks5":
+		return dialSOCKS5(ctx, proxyAddr, target, user, pass)
+	case "socks4", "socks4a":
+		return dialSOCKS4(ctx, proxyAddr, target, user)
+	default:
+		return nil, fmt.Errorf("proxy type %s not supported", proxyType)
+	}
+}
+
+func dialSOCKS5(ctx context.Context, proxyAddr, target, user, pass string) (net.Conn, error) {
+	d := &net.Dialer{Timeout: 10 * time.Second}
+	conn, err := d.DialContext(ctx, "tcp", proxyAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	methods := []byte{0x00}
+	if user != "" || pass != "" {
+		methods = append(methods, 0x02)
+	}
+	req := []byte{0x05, byte(len(methods))}
+	req = append(req, methods...)
+	if _, err := conn.Write(req); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+
+	resp := make([]byte, 2)
+	if _, err := io.ReadFull(conn, resp); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	if resp[0] != 0x05 {
+		_ = conn.Close()
+		return nil, fmt.Errorf("socks5 bad version %d", resp[0])
+	}
+	if resp[1] == 0xFF {
+		_ = conn.Close()
+		return nil, errors.New("socks5 no acceptable auth method")
+	}
+
+	if resp[1] == 0x02 {
+		if len(user) > 255 || len(pass) > 255 {
+			_ = conn.Close()
+			return nil, errors.New("socks5 credentials too long")
+		}
+		var buf bytes.Buffer
+		buf.WriteByte(0x01)
+		buf.WriteByte(byte(len(user)))
+		buf.WriteString(user)
+		buf.WriteByte(byte(len(pass)))
+		buf.WriteString(pass)
+		if _, err := conn.Write(buf.Bytes()); err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+		if _, err := io.ReadFull(conn, resp); err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+		if resp[1] != 0x00 {
+			_ = conn.Close()
+			return nil, errors.New("socks5 auth rejected")
+		}
+	}
+
+	if err := sendSOCKSRequest(conn, target); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return conn, nil
+}
+
+func dialSOCKS4(ctx context.Context, proxyAddr, target, user string) (net.Conn, error) {
+	d := &net.Dialer{Timeout: 10 * time.Second}
+	conn, err := d.DialContext(ctx, "tcp", proxyAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	host, portStr, err := net.SplitHostPort(target)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+
+	ip := net.ParseIP(host)
+	var payload bytes.Buffer
+	payload.WriteByte(0x04)
+	payload.WriteByte(0x01)
+	payload.WriteByte(byte(port >> 8))
+	payload.WriteByte(byte(port))
+	useHostExtension := true
+	if ip4 := ip.To4(); ip4 != nil {
+		payload.Write(ip4)
+		useHostExtension = false
+	} else {
+		payload.Write([]byte{0, 0, 0, 1})
+	}
+	if user != "" {
+		payload.WriteString(user)
+	}
+	payload.WriteByte(0x00)
+	if useHostExtension {
+		payload.WriteString(host)
+		payload.WriteByte(0x00)
+	}
+	if _, err := conn.Write(payload.Bytes()); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+
+	resp := make([]byte, 8)
+	if _, err := io.ReadFull(conn, resp); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	if len(resp) < 2 || resp[1] != 0x5A {
+		_ = conn.Close()
+		return nil, errors.New("socks4 connect rejected")
+	}
+	return conn, nil
+}
+
+func sendSOCKSRequest(conn net.Conn, target string) error {
+	host, portStr, err := net.SplitHostPort(target)
+	if err != nil {
+		return err
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return err
+	}
+
+	var addrType byte
+	var addrPayload []byte
+	if ip := net.ParseIP(host); ip != nil {
+		if ip4 := ip.To4(); ip4 != nil {
+			addrType = 0x01
+			addrPayload = ip4
+		} else if ip16 := ip.To16(); ip16 != nil {
+			addrType = 0x04
+			addrPayload = ip16
+		}
+	}
+	if addrType == 0 {
+		if len(host) > 255 {
+			return errors.New("socks5 hostname too long")
+		}
+		addrType = 0x03
+		addrPayload = append([]byte{byte(len(host))}, []byte(host)...)
+	}
+
+	req := []byte{0x05, 0x01, 0x00, addrType}
+	req = append(req, addrPayload...)
+	req = append(req, byte(port>>8), byte(port))
+	if _, err := conn.Write(req); err != nil {
+		return err
+	}
+
+	header := make([]byte, 4)
+	if _, err := io.ReadFull(conn, header); err != nil {
+		return err
+	}
+	if header[0] != 0x05 {
+		return fmt.Errorf("socks5 response version %d", header[0])
+	}
+	if header[1] != 0x00 {
+		return fmt.Errorf("socks5 connect failed code %d", header[1])
+	}
+
+	switch header[3] {
+	case 0x01:
+		buf := make([]byte, 4)
+		if _, err := io.ReadFull(conn, buf); err != nil {
+			return err
+		}
+	case 0x04:
+		buf := make([]byte, 16)
+		if _, err := io.ReadFull(conn, buf); err != nil {
+			return err
+		}
+	case 0x03:
+		lenBuf := make([]byte, 1)
+		if _, err := io.ReadFull(conn, lenBuf); err != nil {
+			return err
+		}
+		if _, err := io.CopyN(io.Discard, conn, int64(lenBuf[0])); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("socks5 addr type %d unsupported", header[3])
+	}
+
+	portBuf := make([]byte, 2)
+	if _, err := io.ReadFull(conn, portBuf); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1094,6 +1325,23 @@ func main() {
 				cfg.Upstream.Pass = args[i+1]
 				i++
 			}
+		case "--proxy":
+			if i+1 < len(args) {
+				if err := parseProxyOption(args[i+1], &cfg); err != nil {
+					log.Fatalf("proxy flag: %v", err)
+				}
+				i++
+			}
+		case "--proxy-user":
+			if i+1 < len(args) {
+				cfg.Upstream.Proxy.User = args[i+1]
+				i++
+			}
+		case "--proxy-pass":
+			if i+1 < len(args) {
+				cfg.Upstream.Proxy.Pass = args[i+1]
+				i++
+			}
 		case "--strict":
 			cfg.Compat.StrictBroadcast = true
 		case "--help", "-h":
@@ -1139,6 +1387,18 @@ func main() {
 		cfg.HTTP.Listen = fileCfg.HTTP.Listen
 		cfg.HTTP.Pprof = fileCfg.HTTP.Pprof
 		cfg.VarDiff = fileCfg.VarDiff
+		if cfg.Upstream.Proxy.Type == "" {
+			cfg.Upstream.Proxy.Type = fileCfg.Upstream.Proxy.Type
+		}
+		if cfg.Upstream.Proxy.Address == "" {
+			cfg.Upstream.Proxy.Address = fileCfg.Upstream.Proxy.Address
+		}
+		if cfg.Upstream.Proxy.User == "" {
+			cfg.Upstream.Proxy.User = fileCfg.Upstream.Proxy.User
+		}
+		if cfg.Upstream.Proxy.Pass == "" {
+			cfg.Upstream.Proxy.Pass = fileCfg.Upstream.Proxy.Pass
+		}
 	} else if cfgFile != "config.json" {
 		log.Fatalf("config: %v", err)
 	}
@@ -1191,6 +1451,38 @@ func parseURL(url string, cfg *Config) {
 	}
 }
 
+func parseProxyOption(raw string, cfg *Config) error {
+	if raw == "" {
+		return errors.New("proxy value empty")
+	}
+	value := raw
+	if !strings.Contains(value, "://") {
+		value = "socks5://" + value
+	}
+	u, err := url.Parse(value)
+	if err != nil {
+		return err
+	}
+	if u.Host == "" {
+		return errors.New("proxy host missing")
+	}
+	scheme := strings.ToLower(u.Scheme)
+	switch scheme {
+	case "socks5", "socks4", "socks4a":
+		cfg.Upstream.Proxy.Type = scheme
+	default:
+		return fmt.Errorf("proxy scheme %s unsupported", u.Scheme)
+	}
+	cfg.Upstream.Proxy.Address = u.Host
+	if u.User != nil {
+		cfg.Upstream.Proxy.User = u.User.Username()
+		if pass, ok := u.User.Password(); ok {
+			cfg.Upstream.Proxy.Pass = pass
+		}
+	}
+	return nil
+}
+
 func printUsage() {
 	fmt.Printf("Karoo Stratum Proxy\n\n")
 	fmt.Printf("Usage: karoo [options]\n\n")
@@ -1200,6 +1492,9 @@ func printUsage() {
 	fmt.Printf("  --url <url>         Upstream pool URL (default: stratum+tcp://pool.example.org:3333)\n")
 	fmt.Printf("  --user <user>       Upstream username\n")
 	fmt.Printf("  --pass <pass>       Upstream password\n")
+	fmt.Printf("  --proxy <url>       Upstream proxy (socks4:// or socks5://host:port)\n")
+	fmt.Printf("  --proxy-user <u>    Proxy username (optional)\n")
+	fmt.Printf("  --proxy-pass <p>    Proxy password (optional)\n")
 	fmt.Printf("  --strict            Only broadcast known mining methods\n")
 	fmt.Printf("  --help, -h          Show this help\n\n")
 	fmt.Printf("Examples:\n")
