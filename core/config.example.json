@@ -1,0 +1,40 @@
+{
+  "proxy": {
+    "listen": "0.0.0.0:3333",
+    "client_idle_ms": 300000,
+    "max_clients": 1000,
+    "read_buf": 4096,
+    "write_buf": 4096
+  },
+  "upstream": {
+    "host": "pool.example.com",
+    "port": 3333,
+    "user": "YOUR_WALLET_ADDRESS.proxy_worker",
+    "pass": "x",
+    "tls": false,
+    "insecure_skip_verify": false,
+    "backoff_min_ms": 1000,
+    "backoff_max_ms": 60000
+  },
+  "http": {
+    "listen": "127.0.0.1:8080",
+    "pprof": false
+  },
+  "vardiff": {
+    "enabled": true,
+    "target_seconds": 15,
+    "min_diff": 1000,
+    "max_diff": 65536,
+    "adjust_every_ms": 60000
+  },
+  "ratelimit": {
+    "enabled": true,
+    "max_connections_per_ip": 100,
+    "max_connections_per_minute": 60,
+    "ban_duration_seconds": 300,
+    "cleanup_interval_seconds": 60
+  },
+  "compat": {
+    "strict_broadcast": false
+  }
+}
