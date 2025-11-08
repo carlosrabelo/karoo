@@ -2,7 +2,7 @@
 
 > Autor: Carlos Rabelo - contato@carlosrabelo.com.br
 
-Karoo começou como um experimento de fim de semana: um proxy Stratum leve para permitir que um rack de Nerdminers compartilhasse uma única conexão upstream. Hoje ele evoluiu para um front-end Stratum V1 pronto para produção, mantendo os pools satisfeitos enquanto rigs CPU, GPU ou embarcadas martelam shares por trás.
+Karoo começou como um experimento de fim de semana: um proxy Stratum leve para permitir que um rack de Nerdminers compartilhasse uma única conexão upstream. Hoje ele evoluiu para um front-end Stratum V1 pronto para produção, mantendo os pools satisfeitos enquanto rigs CPU, GPU ou embarcadas martelam shares por trás. Este repositório contém exatamente esse proxy.
 
 ## Funcionalidades
 
@@ -56,13 +56,29 @@ Karoo atua como intermediário entre mineradores e pools, expondo Stratum downst
 - Go 1.21+
 - Linux ou macOS (Windows pode funcionar, mas não faz parte do CI)
 
+### Guia Rápido
+1. Clone o repositório e copie a configuração: `cp config/config.example.json config.json`.
+2. Compile o proxy: `make build` (gera `bin/karoo`).
+3. Ajuste `config.json` com o host do pool (`upstream.host`), o modelo de usuário (`user`) e eventuais parâmetros de VarDiff e rate limiting.
+4. Inicie o proxy: `./bin/karoo -config ./config.json` (ou `make run`, que compila e roda usando esse arquivo).
+5. Aponte seus mineradores para `stratum+tcp://<host-do-proxy>:3333` (ou a porta definida em `proxy.listen`) e use os nomes de worker que o Karoo reescreverá para o upstream.
+6. Consulte `curl http://localhost:8080/status` e `curl http://localhost:8080/healthz` para validar clientes, shares e saúde do upstream.
+
 ### Fluxo via Make
 
 ```bash
-make build        # compila para build/karoo
-make build-static # compila para build/karoo-static com CGO desabilitado
-make run          # executa usando ./config.json
+make build        # compila para bin/karoo
+make run          # compila + executa usando ./config.json
+make install      # instala em ~/.local/bin ou /usr/local/bin
 ```
+
+### Instalação com Go
+
+```bash
+go install github.com/carlosrabelo/karoo/core/cmd/karoo@latest
+```
+
+O binário instalado é idêntico ao produzido pelo `make build`.
 
 ### Build direto no módulo core
 
@@ -125,6 +141,22 @@ Campos em destaque:
 - `proxy.client_idle_ms` – desconexão automática após o tempo configurado.
 - `compat.strict_broadcast` – quando `false`, repassa métodos `mining.*` desconhecidos.
 - `vardiff.enabled` – ativa o controlador de dificuldade por worker.
+- `http.listen` – porta usada pelos endpoints HTTP (deixe vazio para desabilitar).
+
+### API HTTP
+- `GET /healthz` – verificação simples que responde `ok` enquanto o processo estiver vivo.
+- `GET /status` – payload JSON com flags do upstream, dados de extranonce, estatísticas de VarDiff e rate limiting, além dos clientes conectados com shares aceitas/rejeitadas. Ideal para dashboards ou watchdogs.
+
+### Conectando Mineradores
+1. Configure seus dispositivos para usar o host/porta do Karoo como pool Stratum.
+2. Escolha nomes de worker significativos; o Karoo preserva o sufixo do worker e reescreve apenas o usuário base configurado para o pool.
+3. Use a mesma senha definida em `upstream.pass`, a menos que o pool exija algo diferente por worker.
+4. Acompanhe os logs do Karoo: cada share aceita ou rejeitada entra no relatório periódico.
+
+### Opções de Deploy
+- `make docker` gera a imagem usando os artefatos em `deploy/docker`.
+- `make systemd` instala a unit de `deploy/systemd` (requer sudo).
+- O diretório `deploy/k8s` contém manifestos namespaced para Kubernetes.
 
 ## Segurança
 
@@ -162,11 +194,13 @@ go test -cover ./...
 ### Estrutura do código
 
 ```
-core/
-├── cmd/karoo/          # Ponto de entrada principal
-├── internal/           # Proxy, routing, vardiff, ratelimit, etc.
-├── pkg/                # Helpers reutilizáveis
-└── README.md (conteúdo incorporado aqui)
+.
+├── core/               # Módulo Go (cmd/karoo + pacotes internos)
+├── deploy/             # Artefatos para Docker, Kubernetes e systemd
+├── docs/               # Tutoriais (EN/PT)
+├── scripts/            # Scripts auxiliares
+├── config/             # Exemplos copiados para config.json
+└── bin/                # Binários gerados pelo make build
 ```
 
 ## Contribuição
