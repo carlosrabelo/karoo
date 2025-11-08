@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, draft ]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test and Lint
+    runs-on: ubuntu-latest
+    env:
+      GO_VERSION: "1.21"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ env.GO_VERSION }}-
+
+      - name: Download dependencies
+        run: |
+          cd core
+          go mod download
+
+      - name: Run tests
+        run: |
+          make test
+
+      - name: Run linter
+        run: |
+          cd core
+          make lint
+
+      - name: Build binary
+        run: |
+          make build
+
+      - name: Test binary execution
+        run: |
+          ./bin/karoo -version

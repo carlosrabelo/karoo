@@ -1,0 +1,176 @@
+name: CD
+
+on:
+  push:
+    branches: [ master ]
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    name: Prepare Metadata
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref, 'refs/tags/')
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+      is_prerelease: ${{ steps.meta.outputs.is_prerelease }}
+      build_time: ${{ steps.meta.outputs.build_time }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine release metadata
+        id: meta
+        run: |
+          set -euo pipefail
+
+          BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          TAG="${GITHUB_REF_NAME}"
+          RELEASE_NAME="Karoo ${TAG}"
+          IS_PRERELEASE=false
+
+          {
+            echo "tag=${TAG}"
+            echo "release_name=${RELEASE_NAME}"
+            echo "is_prerelease=${IS_PRERELEASE}"
+            echo "build_time=${BUILD_TIME}"
+          } >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref, 'refs/tags/')
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            archive_ext: tar.gz
+          - goos: linux
+            goarch: arm64
+            archive_ext: tar.gz
+          - goos: darwin
+            goarch: amd64
+            archive_ext: tar.gz
+          - goos: darwin
+            goarch: arm64
+            archive_ext: tar.gz
+          - goos: windows
+            goarch: amd64
+            archive_ext: zip
+          - goos: windows
+            goarch: arm64
+            archive_ext: zip
+    env:
+      GO_VERSION: "1.21"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build and package
+        run: |
+          set -euo pipefail
+
+          DIST_DIR="${GITHUB_WORKSPACE}/dist"
+          mkdir -p "${DIST_DIR}"
+
+          BIN_NAME="karoo"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            BIN_NAME="karoo.exe"
+          fi
+
+          pushd core >/dev/null
+          GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" CGO_ENABLED=0 \
+            go build -trimpath -tags netgo \
+              -ldflags "-s -w -X main.version=${{ needs.prepare.outputs.tag }} -X main.buildTime=${{ needs.prepare.outputs.build_time }}" \
+              -o "${DIST_DIR}/${BIN_NAME}" ./cmd/karoo
+          popd >/dev/null
+
+          pushd "${DIST_DIR}" >/dev/null
+          ARCHIVE_BASE="karoo-${{ needs.prepare.outputs.tag }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.archive_ext }}" = "zip" ]; then
+            zip -q "${ARCHIVE_BASE}.zip" "${BIN_NAME}"
+          else
+            tar -czf "${ARCHIVE_BASE}.tar.gz" "${BIN_NAME}"
+          fi
+          rm -f "${BIN_NAME}"
+          popd >/dev/null
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: karoo-${{ needs.prepare.outputs.tag }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/karoo-${{ needs.prepare.outputs.tag }}-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive_ext }}
+
+  release:
+    name: Publish Release
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref_type == 'tag' && contains(github.ref, 'refs/tags/')
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Generate release notes
+        run: |
+          set -euo pipefail
+
+          NOTES_FILE="release-notes.md"
+          IS_PRERELEASE="${{ needs.prepare.outputs.is_prerelease }}"
+          if [ "${IS_PRERELEASE}" = "true" ]; then
+            RELEASE_KIND="Prerelease"
+          else
+            RELEASE_KIND="Release"
+          fi
+
+          {
+            echo "# Karoo ${{ needs.prepare.outputs.tag }}"
+            echo ""
+            echo "- Type: ${RELEASE_KIND}"
+            echo "- Build Time: ${{ needs.prepare.outputs.build_time }}"
+            echo "- Commit: ${{ github.sha }}"
+            echo ""
+            echo "## Artifacts"
+            echo ""
+            find release-assets -type f \( -name "*.tar.gz" -o -name "*.zip" \) | sort | while read -r file; do
+              SHA=$(sha256sum "${file}" | cut -d' ' -f1)
+              NAME=$(basename "${file}")
+              echo "- ${NAME}: \`${SHA}\`"
+            done
+          } > "${NOTES_FILE}"
+
+          cat "${NOTES_FILE}"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: ${{ needs.prepare.outputs.release_name }}
+          body_path: release-notes.md
+          prerelease: ${{ needs.prepare.outputs.is_prerelease }}
+          generate_release_notes: false
+          files: |
+            release-assets/**/*.tar.gz
+            release-assets/**/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
