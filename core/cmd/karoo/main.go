@@ -18,13 +18,18 @@ import (
 	"github.com/carlosrabelo/karoo/core/internal/proxy"
 )
 
+var (
+	version   = "dev"
+	buildTime = "unknown"
+)
+
 func main() {
 	cfgFile := flag.String("config", "config.json", "Path to configuration file")
-	version := flag.Bool("version", false, "Show version information")
+	showVersion := flag.Bool("version", false, "Show version information")
 	flag.Parse()
 
-	if *version {
-		fmt.Println("karoo v0.0.1")
+	if *showVersion {
+		fmt.Printf("karoo %s (built %s)\n", version, buildTime)
 		os.Exit(0)
 	}
 
