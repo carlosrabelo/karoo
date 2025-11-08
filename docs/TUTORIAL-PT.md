@@ -3,7 +3,7 @@
 Passo a passo completo para compilar, configurar e operar o proxy Stratum V1 do Karoo.
 
 ## 1. Requisitos
-- Go 1.21+
+- Go 1.25.4+
 - Git
 - Acesso a um pool Stratum V1 (URL + template de worker)
 - Shell Linux ou macOS (Windows via WSL funciona)

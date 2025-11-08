@@ -53,7 +53,7 @@ Karoo atua como intermediário entre mineradores e pools, expondo Stratum downst
 ## Primeiros Passos
 
 ### Pré-requisitos
-- Go 1.21+
+- Go 1.25.4+
 - Linux ou macOS (Windows pode funcionar, mas não faz parte do CI)
 
 ### Guia Rápido

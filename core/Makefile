@@ -5,6 +5,7 @@ GO                  := go
 SRC                 := ./cmd/karoo
 BIN                 := karoo
 BUILD_DIR           := $(PROJECT_ROOT)/bin
+BINARY              := $(BUILD_DIR)/$(BIN)
 CONFIG_TEMPLATE     := $(PROJECT_ROOT)/config/config.example.json
 RUN_CONFIG         ?= $(PROJECT_ROOT)/config.json
 ROOT_BIN_DIR        ?= /usr/local/bin
@@ -51,9 +52,11 @@ help:
 	@printf "  %-15s %s\n" "deps-update" "Update Go module dependencies"
 	@printf "  %-15s %s\n" "info"        "Show build metadata summary"
 
-build:
+build: $(BINARY)
+
+$(BINARY):
 	@mkdir -p $(BUILD_DIR) $(GOCACHE)
-	CGO_ENABLED=0 $(GO) build -trimpath -tags netgo -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BIN) $(SRC)
+	CGO_ENABLED=0 $(GO) build -trimpath -tags netgo -ldflags="$(LDFLAGS)" -o $(BINARY) $(SRC)
 
 build-all:
 	@mkdir -p $(BUILD_DIR) $(GOCACHE)
@@ -65,14 +68,14 @@ build-all:
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 $(GO) build -trimpath -tags netgo -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BIN)-windows-amd64.exe $(SRC)
 	@echo "Multi-platform build completed. Binaries in $(BUILD_DIR)/"
 
-run: build
+run: $(BINARY)
 	@if [ ! -f "$(RUN_CONFIG)" ]; then \
 		echo "Config $(RUN_CONFIG) not found. Copy $(CONFIG_TEMPLATE) first."; \
 		exit 1; \
 	fi
 	@$(BUILD_DIR)/$(BIN) -config $(RUN_CONFIG)
 
-install: build
+install: $(BINARY)
 	@set -e; \
 	if [ "$$(id -u)" -eq 0 ]; then \
 		$(MAKE) INSTALL_BIN_DIR="$(ROOT_BIN_DIR)" _install-internal; \
@@ -123,7 +126,7 @@ mod-tidy:
 	$(GO) mod verify
 
 clean:
-	@rm -f $(BUILD_DIR)/$(BIN)
+	@rm -f $(BINARY)
 	@$(GO) clean -cache -testcache 2>/dev/null || true
 
 info:

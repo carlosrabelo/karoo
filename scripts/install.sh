@@ -10,6 +10,7 @@ readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
 readonly YELLOW='\033[1;33m'
 readonly NC='\033[0m' # No Color
+readonly MIN_GO_VERSION="1.25.4"
 
 # Logging functions
 log_info() {
@@ -30,16 +31,20 @@ check_prerequisites() {
     
     # Check Go installation
     if ! command -v go &> /dev/null; then
-        log_error "Go is not installed. Please install Go 1.21+ first."
+        log_error "Go is not installed. Please install Go ${MIN_GO_VERSION}+ first."
         log_info "Visit: https://golang.org/dl/"
         exit 1
     fi
     
     # Check Go version
     local go_version
-    go_version=$(go version | grep -oE 'go[0-9]+\.[0-9]+' | sed 's/go//')
-    if ! printf '%s\n' "1.21" "$go_version" | sort -V -C; then
-        log_error "Go version $go_version is too old. Please upgrade to Go 1.21+"
+    go_version=$(go version | grep -oE 'go[0-9]+\.[0-9]+(\.[0-9]+)?' | sed 's/go//')
+    if [[ -z "$go_version" ]]; then
+        log_error "Unable to determine installed Go version."
+        exit 1
+    fi
+    if ! printf '%s\n' "${MIN_GO_VERSION}" "$go_version" | sort -V -C; then
+        log_error "Go version $go_version is too old. Please upgrade to Go ${MIN_GO_VERSION}+"
         exit 1
     fi
     

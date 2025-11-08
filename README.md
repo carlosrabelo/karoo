@@ -53,7 +53,7 @@ Karoo runs as an intermediary between miners and pools, exposing Stratum downstr
 ## Getting Started
 
 ### Prerequisites
-- Go 1.21+
+- Go 1.25.4+
 - Linux or macOS (Windows may work but is not part of CI)
 
 ### Quickstart
