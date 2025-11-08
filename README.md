@@ -2,48 +2,196 @@
 
 > Author: Carlos Rabelo - contato@carlosrabelo.com.br
 
-Karoo started as a weekend experiment: a lightweight Stratum proxy so a rack of Nerdminers could share a single upstream connection. The idea quickly grew into a general-purpose, multi-protocol Stratum front-end that keeps upstream pools happy while CPU, GPU, or embedded rigs hammer away behind it.
+Karoo started as a weekend experiment: a lightweight Stratum proxy so a rack of Nerdminers could share a single upstream connection. The idea quickly grew into a production-ready Stratum V1 front-end that keeps upstream pools happy while CPU, GPU, or embedded rigs hammer away behind it.
 
 ## Features
 
-- **Upstream on demand** – automatically dials the configured pool only when miners are connected and backs off with jittered retries on failures.
-- **Protocol aware fan-out** – normalises `mining.subscribe`, `mining.authorize`, and `mining.submit` flows while preserving client IDs and minimizing extranonce collisions.
-- **Share accounting & reporting** – detailed logs per worker (latency, spacing between accepted shares) plus periodic aggregate reports and HTTP `/status` / `/healthz` endpoints.
-- **VarDiff scaffold** – optional, per-worker difficulty adjustments with room to grow into a full moving-average controller.
-- **Flexible transport** – TCP today, with plumbing designed to extend to TLS or additional wire protocols.
+### Core Functionality
+- **Stratum V1 Protocol Support** – full `mining.subscribe`, `mining.authorize`, and `mining.submit` handling with extranonce management.
+- **Client & Upstream Management** – concurrent downstream clients with automatic upstream reconnects and exponential backoff.
+- **Share Routing** – efficient share forwarding plus acceptance/rejection tracking.
+
+### Advanced Controls
+- **Variable Difficulty (VarDiff)** – dynamic, per-client adjustment with configurable target rates and min/max bounds.
+- **Rate Limiting & Bans** – per-IP caps, connection-per-minute throttles, and automatic temporary bans.
+- **Comprehensive Metrics** – HTTP `/status` and `/healthz` plus counters for shares, clients, and upstream health.
+- **HTTP API** – light REST interface for health checks and runtime status.
+
+### Runtime Comforts
+- **Upstream on demand** – dials pools only when miners are online and backs off with jittered retries upon failures.
+- **Protocol aware fan-out** – normalises request/response flows while preserving worker identity and minimizing extranonce collisions.
+- **Share accounting & logs** – per-worker latency and cadence reports with aggregate summaries.
+- **Flexible transport** – TCP today with a clear path toward TLS or alternative downstream protocols.
+
+## Architecture
+
+Karoo runs as an intermediary between miners and pools, exposing Stratum downstream while aggregating upstream connections and metrics.
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│   Miners    │────▶│    Karoo     │────▶│    Pool     │
+│  (Clients)  │◀────│    Proxy     │◀────│ (Upstream)  │
+└─────────────┘     └──────────────┘     └─────────────┘
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │   HTTP API   │
+                    │  (Metrics)   │
+                    └──────────────┘
+```
+
+### Internal Packages
+- `proxy` – connection lifecycle, share routing, and upstream orchestration.
+- `routing` – message fan-out between miners and upstream.
+- `nonce` – extranonce allocation and subscription tracking.
+- `vardiff` – per-client difficulty controller.
+- `ratelimit` – connection throttling and ban list enforcement.
+- `connection` – buffered reader/writer helpers for Stratum frames.
+- `metrics` – counters and gauges exposed over HTTP.
+- `stratum` – request/response encoding helpers.
 
 ## Getting Started
 
+### Prerequisites
+- Go 1.21+
+- Linux or macOS (Windows may work but is not part of CI)
+
+### Make-based Workflow
+
 ```bash
 make build        # compile to build/karoo
-make build-static # compile to build/karoo-static (CGO disabled)
-make run          # run with ./config.json
+make build-static # compile to build/karoo-static with CGO disabled
+make run          # run using ./config.json
 ```
 
-The default configuration listens on `:3334` for Stratum clients and connects to the upstream pool defined in `config.json`. HTTP status endpoints are exposed at `:8080` by default.
+### Direct Go Build (core module)
 
-### Configuration Highlights
+```bash
+cd core
+go build -o karoo ./cmd/karoo
+go test ./...
+```
 
-- `proxy.listen` – downstream address the miners connect to.
-- `upstream.{host,port,user,pass}` – upstream Stratum pool credentials.
-- `proxy.client_idle_ms` – disconnect idle miners after the specified timeout.
-- `compat.strict_broadcast` – when `false`, forwards unfamiliar `mining.*` messages unchanged.
-- `vardiff.enabled` – toggle simple per-worker VarDiff adjustments.
+### Configuration File
 
-See the sample config in `config/config.example.json` for a full reference.
+The default configuration listens on `:3334` for Stratum clients, connects to the upstream defined in `config.json`, and exposes HTTP status on `:8080`. Copy `config/config.example.json` (or `core/config.example.json` if you are working inside the Go module) and adjust the fields below to suit your deployment.
 
-## Development Workflow
+```json
+{
+  "proxy": {
+    "listen": "0.0.0.0:3333",
+    "client_idle_ms": 300000,
+    "max_clients": 1000,
+    "read_buf": 4096,
+    "write_buf": 4096
+  },
+  "upstream": {
+    "host": "pool.example.com",
+    "port": 3333,
+    "user": "your_wallet_address.proxy",
+    "pass": "x",
+    "tls": false,
+    "insecure_skip_verify": false,
+    "backoff_min_ms": 1000,
+    "backoff_max_ms": 60000
+  },
+  "http": {
+    "listen": "0.0.0.0:8080",
+    "pprof": false
+  },
+  "vardiff": {
+    "enabled": true,
+    "target_seconds": 15,
+    "min_diff": 1000,
+    "max_diff": 65536,
+    "adjust_every_ms": 60000
+  },
+  "ratelimit": {
+    "enabled": true,
+    "max_connections_per_ip": 100,
+    "max_connections_per_minute": 60,
+    "ban_duration_seconds": 300,
+    "cleanup_interval_seconds": 60
+  },
+  "compat": {
+    "strict_broadcast": false
+  }
+}
+```
 
-- Build with `make build` (outputs `build/karoo`).
-- Run unit-style checks by executing `go test ./...` (once tests are added).
-- Format code with `gofmt` (the Makefile target already does this before building).
-- Publish binaries by pushing a tag like `v1.0.0` or running the GitHub Actions workflow manually.
+Key fields:
+- `proxy.listen` – downstream Stratum endpoint.
+- `upstream.host/port/user/pass` – upstream pool credentials or worker template.
+- `proxy.client_idle_ms` – disconnect idle miners after the configured period.
+- `compat.strict_broadcast` – when `false`, forwards unknown `mining.*` methods unchanged.
+- `vardiff.enabled` – enables the per-worker difficulty controller.
+
+## Security
+
+### Rate Limiting
+- Guard against connection flooding with `max_connections_per_ip`.
+- Keep reconnect storms in check via `max_connections_per_minute`.
+- Temporary bans (`ban_duration_seconds`) discourage repeated abuse.
+
+### Best Practices
+1. Run behind a firewall and restrict downstream access to trusted networks.
+2. Enable TLS when pools support it; otherwise keep proxy-to-pool traffic isolated.
+3. Monitor `/status` regularly for rejection spikes and client churn.
+4. Keep binaries updated to pick up bug fixes and security hardening.
+
+## Troubleshooting
+
+**Upstream Connection Fails** – ensure the pool host/port are reachable, firewall rules permit the egress port, and disable TLS if the upstream does not support it.
+
+**Clients Can't Connect** – verify `proxy.listen` is exposed, confirm no other service is bound to the same port, and check perimeter firewalls.
+
+**High Rejection Rate** – validate VarDiff parameters, confirm miners speak Stratum V1, and look for latency or packet loss between Karoo and the pool.
+
+**Rate Limiting Too Aggressive** – raise `max_connections_per_ip/minute`, reduce ban duration, or disable the limiter for trusted networks.
+
+## Development
+
+### Running Tests
+
+```bash
+go test ./...
+go test -race ./...
+go test -cover ./...
+```
+
+### Code Structure
+
+```
+core/
+├── cmd/karoo/          # Main application entry point
+├── internal/           # Proxy, routing, vardiff, ratelimit, etc.
+├── pkg/                # Reusable helpers
+└── README.md (merged into this file)
+```
+
+## Contributing
+1. Fork the repository.
+2. Create a feature branch (`git checkout -b feature/amazing-feature`).
+3. Write tests alongside code changes.
+4. Run `go test ./...` and ensure `make build` still succeeds.
+5. Commit with a descriptive message and open a pull request.
+
+## Support
+- GitHub Issues: https://github.com/carlosrabelo/karoo/issues
+- Pull Requests: https://github.com/carlosrabelo/karoo/pulls
 
 ## Roadmap
-
-- Expand the VarDiff loop into a moving average controller with bucketed share statistics.
+- Expand the VarDiff loop into a moving-average controller with bucketed share statistics.
 - Add downstream protocol adapters (e.g., WebSockets) and upstream failover lists.
 - Ship structured metrics (Prometheus/OpenTelemetry) to complement the existing logs.
+
+## Changelog
+
+### v0.0.1 (Current)
+- Initial release with Stratum V1 support.
+- Variable difficulty controller.
+- Rate limiting and HTTP metrics API.
+- Comprehensive test coverage scaffold.
 
 ## License
 
