@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/carlosrabelo/karoo/core/internal/connection"
+	"github.com/carlosrabelo/karoo/core/internal/proxysocks"
 	"github.com/carlosrabelo/karoo/core/internal/stratum"
 )
 
@@ -60,8 +61,27 @@ func TestNewClient(t *testing.T) {
 			InsecureSkipVerify bool   `json:"insecure_skip_verify"`
 			BackoffMinMs       int    `json:"backoff_min_ms"`
 			BackoffMaxMs       int    `json:"backoff_max_ms"`
+			SocksProxy         struct {
+				Enabled  bool   `json:"enabled"`
+				Type     string `json:"type"`
+				Host     string `json:"host"`
+				Port     int    `json:"port"`
+				Username string `json:"username"`
+				Password string `json:"password"`
+			} `json:"socks_proxy"`
 		}{
 			User: "testuser",
+			Pass: "testpass",
+			SocksProxy: struct {
+				Enabled  bool   `json:"enabled"`
+				Type     string `json:"type"`
+				Host     string `json:"host"`
+				Port     int    `json:"port"`
+				Username string `json:"username"`
+				Password string `json:"password"`
+			}{
+				Enabled: false,
+			},
 		},
 	}
 
@@ -98,15 +118,19 @@ func TestNewClient(t *testing.T) {
 func TestUpstreamDial(t *testing.T) {
 	connCfg := &connection.Config{
 		Upstream: struct {
-			Host               string `json:"host"`
-			Port               int    `json:"port"`
-			User               string `json:"user"`
-			Pass               string `json:"pass"`
-			TLS                bool   `json:"tls"`
-			InsecureSkipVerify bool   `json:"insecure_skip_verify"`
+			Host               string            `json:"host"`
+			Port               int               `json:"port"`
+			User               string            `json:"user"`
+			Pass               string            `json:"pass"`
+			TLS                bool              `json:"tls"`
+			InsecureSkipVerify bool              `json:"insecure_skip_verify"`
+			SocksProxy         proxysocks.Config `json:"socks_proxy"`
 		}{
-			Host: "127.0.0.1",
-			Port: 9999, // Non-existent port
+			Host:       "test.pool.com",
+			Port:       3333,
+			User:       "test.user",
+			Pass:       "test.pass",
+			SocksProxy: proxysocks.Config{Enabled: false},
 		},
 		Proxy: struct {
 			ReadBuf  int `json:"read_buf"`
@@ -117,11 +141,14 @@ func TestUpstreamDial(t *testing.T) {
 		},
 	}
 
-	up := connection.NewUpstream(connCfg)
+	up, err := connection.NewUpstream(connCfg)
+	if err != nil {
+		t.Fatalf("Failed to create upstream: %v", err)
+	}
 	ctx := context.Background()
 
 	// Should fail to connect to non-existent server
-	err := up.Dial(ctx)
+	err = up.Dial(ctx)
 	if err == nil {
 		t.Error("Expected error when dialing non-existent server")
 	}
@@ -138,7 +165,10 @@ func TestUpstreamClose(t *testing.T) {
 		},
 	}
 
-	up := connection.NewUpstream(connCfg)
+	up, err := connection.NewUpstream(connCfg)
+	if err != nil {
+		t.Fatalf("Failed to create upstream: %v", err)
+	}
 
 	// Close should not panic even when not connected
 	up.Close()
@@ -159,7 +189,10 @@ func TestUpstreamIsConnected(t *testing.T) {
 			WriteBuf: 4096,
 		},
 	}
-	up := connection.NewUpstream(connCfg)
+	up, err := connection.NewUpstream(connCfg)
+	if err != nil {
+		t.Fatalf("Failed to create upstream: %v", err)
+	}
 
 	// Initially not connected
 	if up.IsConnected() {

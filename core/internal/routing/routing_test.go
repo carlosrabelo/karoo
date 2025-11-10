@@ -65,7 +65,11 @@ func createTestUpstream() *connection.Upstream {
 			WriteBuf: 4096,
 		},
 	}
-	return connection.NewUpstream(cfg)
+	up, err := connection.NewUpstream(cfg)
+	if err != nil {
+		panic(err)
+	}
+	return up
 }
 
 func TestNewRouter(t *testing.T) {

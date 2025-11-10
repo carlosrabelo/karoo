@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carlosrabelo/karoo/core/internal/proxysocks"
 	"github.com/carlosrabelo/karoo/core/internal/stratum"
 )
 
@@ -22,12 +23,13 @@ type Config struct {
 		WriteBuf int `json:"write_buf"`
 	} `json:"proxy"`
 	Upstream struct {
-		Host               string `json:"host"`
-		Port               int    `json:"port"`
-		User               string `json:"user"`
-		Pass               string `json:"pass"`
-		TLS                bool   `json:"tls"`
-		InsecureSkipVerify bool   `json:"insecure_skip_verify"`
+		Host               string            `json:"host"`
+		Port               int               `json:"port"`
+		User               string            `json:"user"`
+		Pass               string            `json:"pass"`
+		TLS                bool              `json:"tls"`
+		InsecureSkipVerify bool              `json:"insecure_skip_verify"`
+		SocksProxy         proxysocks.Config `json:"socks_proxy"`
 	} `json:"upstream"`
 }
 
@@ -46,6 +48,9 @@ type Upstream struct {
 	conn net.Conn
 	br   *bufio.Reader
 	bw   *bufio.Writer
+
+	// SOCKS proxy dialer
+	proxyDialer *proxysocks.ProxyDialer
 
 	// extranonce
 	ex1     string
@@ -76,11 +81,17 @@ type Downstream struct {
 }
 
 // NewUpstream creates a new upstream connection manager
-func NewUpstream(cfg *Config) *Upstream {
-	return &Upstream{
-		cfg:     cfg,
-		pending: make(map[int64]PendingReq),
+func NewUpstream(cfg *Config) (*Upstream, error) {
+	proxyDialer, err := proxysocks.NewProxyDialer(&cfg.Upstream.SocksProxy)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create proxy dialer: %w", err)
 	}
+
+	return &Upstream{
+		cfg:         cfg,
+		proxyDialer: proxyDialer,
+		pending:     make(map[int64]PendingReq),
+	}, nil
 }
 
 // NewDownstream creates a new downstream connection wrapper
@@ -98,15 +109,43 @@ func (u *Upstream) Dial(ctx context.Context) error {
 	addr := net.JoinHostPort(u.cfg.Upstream.Host, strconv.Itoa(u.cfg.Upstream.Port))
 	var c net.Conn
 	var err error
-	if u.cfg.Upstream.TLS {
-		conf := &tls.Config{InsecureSkipVerify: u.cfg.Upstream.InsecureSkipVerify}
-		c, err = tls.Dial("tcp", addr, conf)
+
+	if u.proxyDialer.IsEnabled() {
+		// Use SOCKS proxy
+		if u.cfg.Upstream.TLS {
+			// First connect through SOCKS proxy, then wrap with TLS
+			var rawConn net.Conn
+			rawConn, err = u.proxyDialer.DialContext(ctx, "tcp", addr)
+			if err != nil {
+				return fmt.Errorf("SOCKS proxy connection failed: %w", err)
+			}
+
+			conf := &tls.Config{InsecureSkipVerify: u.cfg.Upstream.InsecureSkipVerify}
+			c = tls.Client(rawConn, conf)
+			if err := c.(*tls.Conn).Handshake(); err != nil {
+				rawConn.Close()
+				return fmt.Errorf("TLS handshake through SOCKS proxy failed: %w", err)
+			}
+		} else {
+			// Direct SOCKS proxy connection
+			c, err = u.proxyDialer.DialContext(ctx, "tcp", addr)
+			if err != nil {
+				return fmt.Errorf("SOCKS proxy connection failed: %w", err)
+			}
+		}
 	} else {
-		c, err = net.DialTimeout("tcp", addr, 10*time.Second)
+		// Direct connection (original behavior)
+		if u.cfg.Upstream.TLS {
+			conf := &tls.Config{InsecureSkipVerify: u.cfg.Upstream.InsecureSkipVerify}
+			c, err = tls.Dial("tcp", addr, conf)
+		} else {
+			c, err = net.DialTimeout("tcp", addr, 10*time.Second)
+		}
+		if err != nil {
+			return err
+		}
 	}
-	if err != nil {
-		return err
-	}
+
 	u.mu.Lock()
 	u.conn = c
 	u.br = bufio.NewReaderSize(c, u.cfg.Proxy.ReadBuf)

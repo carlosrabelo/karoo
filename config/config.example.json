@@ -14,7 +14,15 @@
     "tls": false,
     "insecure_skip_verify": false,
     "backoff_min_ms": 1000,
-    "backoff_max_ms": 20000
+    "backoff_max_ms": 20000,
+    "socks_proxy": {
+      "enabled": false,
+      "type": "socks5",
+      "host": "127.0.0.1",
+      "port": 1080,
+      "username": "",
+      "password": ""
+    }
   },
   "http": {
     "listen": ":8080",

@@ -16,6 +16,7 @@ import (
 	"github.com/carlosrabelo/karoo/core/internal/connection"
 	"github.com/carlosrabelo/karoo/core/internal/metrics"
 	"github.com/carlosrabelo/karoo/core/internal/nonce"
+	"github.com/carlosrabelo/karoo/core/internal/proxysocks"
 	"github.com/carlosrabelo/karoo/core/internal/ratelimit"
 	"github.com/carlosrabelo/karoo/core/internal/routing"
 	"github.com/carlosrabelo/karoo/core/internal/stratum"
@@ -61,6 +62,14 @@ type Config struct {
 		InsecureSkipVerify bool   `json:"insecure_skip_verify"`
 		BackoffMinMs       int    `json:"backoff_min_ms"`
 		BackoffMaxMs       int    `json:"backoff_max_ms"`
+		SocksProxy         struct {
+			Enabled  bool   `json:"enabled"`
+			Type     string `json:"type"` // "socks4" or "socks5"
+			Host     string `json:"host"`
+			Port     int    `json:"port"`
+			Username string `json:"username"` // optional for SOCKS5
+			Password string `json:"password"` // optional for SOCKS5
+		} `json:"socks_proxy"`
 	} `json:"upstream"`
 	HTTP struct {
 		Listen string `json:"listen"`
@@ -111,12 +120,13 @@ func NewProxy(cfg *Config) *Proxy {
 			WriteBuf: cfg.Proxy.WriteBuf,
 		},
 		Upstream: struct {
-			Host               string `json:"host"`
-			Port               int    `json:"port"`
-			User               string `json:"user"`
-			Pass               string `json:"pass"`
-			TLS                bool   `json:"tls"`
-			InsecureSkipVerify bool   `json:"insecure_skip_verify"`
+			Host               string            `json:"host"`
+			Port               int               `json:"port"`
+			User               string            `json:"user"`
+			Pass               string            `json:"pass"`
+			TLS                bool              `json:"tls"`
+			InsecureSkipVerify bool              `json:"insecure_skip_verify"`
+			SocksProxy         proxysocks.Config `json:"socks_proxy"`
 		}{
 			Host:               cfg.Upstream.Host,
 			Port:               cfg.Upstream.Port,
@@ -124,6 +134,7 @@ func NewProxy(cfg *Config) *Proxy {
 			Pass:               cfg.Upstream.Pass,
 			TLS:                cfg.Upstream.TLS,
 			InsecureSkipVerify: cfg.Upstream.InsecureSkipVerify,
+			SocksProxy:         cfg.Upstream.SocksProxy,
 		},
 	}
 	// Convert config for routing package
@@ -136,7 +147,10 @@ func NewProxy(cfg *Config) *Proxy {
 		Compat: cfg.Compat,
 	}
 
-	up := connection.NewUpstream(connCfg)
+	up, err := connection.NewUpstream(connCfg)
+	if err != nil {
+		log.Fatalf("Failed to create upstream: %v", err)
+	}
 	mx := metrics.NewCollector()
 	rt := routing.NewRouter(routingCfg, up, mx)
 	nm := nonce.NewManager(up)

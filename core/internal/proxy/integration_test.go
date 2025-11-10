@@ -39,6 +39,14 @@ func TestProxyIntegration(t *testing.T) {
 			InsecureSkipVerify bool   `json:"insecure_skip_verify"`
 			BackoffMinMs       int    `json:"backoff_min_ms"`
 			BackoffMaxMs       int    `json:"backoff_max_ms"`
+			SocksProxy         struct {
+				Enabled  bool   `json:"enabled"`
+				Type     string `json:"type"`
+				Host     string `json:"host"`
+				Port     int    `json:"port"`
+				Username string `json:"username"`
+				Password string `json:"password"`
+			} `json:"socks_proxy"`
 		}{
 			Host:         "127.0.0.1",
 			Port:         0, // Will be set to mock server
@@ -47,6 +55,16 @@ func TestProxyIntegration(t *testing.T) {
 			TLS:          false,
 			BackoffMinMs: 100,
 			BackoffMaxMs: 1000,
+			SocksProxy: struct {
+				Enabled  bool   `json:"enabled"`
+				Type     string `json:"type"`
+				Host     string `json:"host"`
+				Port     int    `json:"port"`
+				Username string `json:"username"`
+				Password string `json:"password"`
+			}{
+				Enabled: false,
+			},
 		},
 		HTTP: struct {
 			Listen string `json:"listen"`
@@ -306,6 +324,14 @@ func TestEndToEndFlow(t *testing.T) {
 			InsecureSkipVerify bool   `json:"insecure_skip_verify"`
 			BackoffMinMs       int    `json:"backoff_min_ms"`
 			BackoffMaxMs       int    `json:"backoff_max_ms"`
+			SocksProxy         struct {
+				Enabled  bool   `json:"enabled"`
+				Type     string `json:"type"`
+				Host     string `json:"host"`
+				Port     int    `json:"port"`
+				Username string `json:"username"`
+				Password string `json:"password"`
+			} `json:"socks_proxy"`
 		}{
 			Host:         "127.0.0.1",
 			Port:         port,
@@ -314,6 +340,16 @@ func TestEndToEndFlow(t *testing.T) {
 			TLS:          false,
 			BackoffMinMs: 100,
 			BackoffMaxMs: 1000,
+			SocksProxy: struct {
+				Enabled  bool   `json:"enabled"`
+				Type     string `json:"type"`
+				Host     string `json:"host"`
+				Port     int    `json:"port"`
+				Username string `json:"username"`
+				Password string `json:"password"`
+			}{
+				Enabled: false,
+			},
 		},
 		HTTP: struct {
 			Listen string `json:"listen"`
@@ -407,6 +443,14 @@ func TestUpstreamReconnection(t *testing.T) {
 			InsecureSkipVerify bool   `json:"insecure_skip_verify"`
 			BackoffMinMs       int    `json:"backoff_min_ms"`
 			BackoffMaxMs       int    `json:"backoff_max_ms"`
+			SocksProxy         struct {
+				Enabled  bool   `json:"enabled"`
+				Type     string `json:"type"`
+				Host     string `json:"host"`
+				Port     int    `json:"port"`
+				Username string `json:"username"`
+				Password string `json:"password"`
+			} `json:"socks_proxy"`
 		}{
 			Host:         "127.0.0.1",
 			Port:         9999, // Non-existent port
@@ -415,6 +459,16 @@ func TestUpstreamReconnection(t *testing.T) {
 			TLS:          false,
 			BackoffMinMs: 10,
 			BackoffMaxMs: 100,
+			SocksProxy: struct {
+				Enabled  bool   `json:"enabled"`
+				Type     string `json:"type"`
+				Host     string `json:"host"`
+				Port     int    `json:"port"`
+				Username string `json:"username"`
+				Password string `json:"password"`
+			}{
+				Enabled: false,
+			},
 		},
 	}
 

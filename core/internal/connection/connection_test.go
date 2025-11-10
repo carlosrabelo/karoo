@@ -6,13 +6,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carlosrabelo/karoo/core/internal/proxysocks"
 	"github.com/carlosrabelo/karoo/core/internal/stratum"
 )
 
 func TestNewUpstream(t *testing.T) {
 	cfg := &Config{}
-	u := NewUpstream(cfg)
+	u, err := NewUpstream(cfg)
 
+	if err != nil {
+		t.Fatalf("NewUpstream failed: %v", err)
+	}
 	if u == nil {
 		t.Fatal("NewUpstream returned nil")
 	}
@@ -61,15 +65,17 @@ func TestNewDownstream(t *testing.T) {
 func TestUpstreamDial(t *testing.T) {
 	cfg := &Config{
 		Upstream: struct {
-			Host               string `json:"host"`
-			Port               int    `json:"port"`
-			User               string `json:"user"`
-			Pass               string `json:"pass"`
-			TLS                bool   `json:"tls"`
-			InsecureSkipVerify bool   `json:"insecure_skip_verify"`
+			Host               string            `json:"host"`
+			Port               int               `json:"port"`
+			User               string            `json:"user"`
+			Pass               string            `json:"pass"`
+			TLS                bool              `json:"tls"`
+			InsecureSkipVerify bool              `json:"insecure_skip_verify"`
+			SocksProxy         proxysocks.Config `json:"socks_proxy"`
 		}{
-			Host: "127.0.0.1",
-			Port: 9999, // Non-existent port
+			Host:       "127.0.0.1",
+			Port:       9999, // Non-existent port
+			SocksProxy: proxysocks.Config{Enabled: false},
 		},
 		Proxy: struct {
 			ReadBuf  int `json:"read_buf"`
@@ -80,11 +86,14 @@ func TestUpstreamDial(t *testing.T) {
 		},
 	}
 
-	u := NewUpstream(cfg)
+	u, err := NewUpstream(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create upstream: %v", err)
+	}
 	ctx := context.Background()
 
 	// Should fail to connect to non-existent server
-	err := u.Dial(ctx)
+	err = u.Dial(ctx)
 	if err == nil {
 		t.Error("Expected error when dialing non-existent server")
 	}
@@ -92,7 +101,10 @@ func TestUpstreamDial(t *testing.T) {
 
 func TestUpstreamClose(t *testing.T) {
 	cfg := &Config{}
-	u := NewUpstream(cfg)
+	u, err := NewUpstream(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create upstream: %v", err)
+	}
 
 	// Close should not panic even when not connected
 	u.Close()
@@ -104,7 +116,10 @@ func TestUpstreamClose(t *testing.T) {
 
 func TestUpstreamIsConnected(t *testing.T) {
 	cfg := &Config{}
-	u := NewUpstream(cfg)
+	u, err := NewUpstream(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create upstream: %v", err)
+	}
 
 	// Initially not connected
 	if u.IsConnected() {
@@ -114,7 +129,10 @@ func TestUpstreamIsConnected(t *testing.T) {
 
 func TestUpstreamExtranonce(t *testing.T) {
 	cfg := &Config{}
-	u := NewUpstream(cfg)
+	u, err := NewUpstream(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create upstream: %v", err)
+	}
 
 	// Test initial state
 	ex1, ex2 := u.GetExtranonce()
@@ -138,7 +156,10 @@ func TestUpstreamExtranonce(t *testing.T) {
 
 func TestUpstreamPendingRequests(t *testing.T) {
 	cfg := &Config{}
-	u := NewUpstream(cfg)
+	u, err := NewUpstream(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create upstream: %v", err)
+	}
 
 	// Test adding and removing pending requests
 	req := PendingReq{
@@ -167,7 +188,10 @@ func TestUpstreamPendingRequests(t *testing.T) {
 
 func TestUpstreamSend(t *testing.T) {
 	cfg := &Config{}
-	u := NewUpstream(cfg)
+	u, err := NewUpstream(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create upstream: %v", err)
+	}
 
 	// Test send when not connected
 	msg := stratum.Message{
@@ -175,7 +199,7 @@ func TestUpstreamSend(t *testing.T) {
 		Params: []interface{}{"param1"},
 	}
 
-	_, err := u.Send(msg)
+	_, err = u.Send(msg)
 	if err == nil {
 		t.Error("Expected error when sending to disconnected upstream")
 	}

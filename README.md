@@ -47,6 +47,7 @@ Karoo runs as an intermediary between miners and pools, exposing Stratum downstr
 - `vardiff` – per-client difficulty controller.
 - `ratelimit` – connection throttling and ban list enforcement.
 - `connection` – buffered reader/writer helpers for Stratum frames.
+- `proxysocks` – SOCKS5 proxy support for upstream connections.
 - `metrics` – counters and gauges exposed over HTTP.
 - `stratum` – request/response encoding helpers.
 
@@ -142,6 +143,52 @@ Key fields:
 - `compat.strict_broadcast` – when `false`, forwards unknown `mining.*` methods unchanged.
 - `vardiff.enabled` – enables the per-worker difficulty controller.
 - `http.listen` – HTTP status listener (set empty string to disable).
+
+### SOCKS5 Proxy Support
+
+Karoo supports routing upstream pool connections through a SOCKS5 proxy. This is useful for:
+- Routing traffic through VPNs or Tor
+- Bypassing network restrictions
+- Adding an extra layer of privacy
+
+To enable SOCKS5 proxy support, add the `socks_proxy` section to your `upstream` configuration:
+
+```json
+{
+  "upstream": {
+    "host": "pool.example.com",
+    "port": 3333,
+    "user": "your_wallet_address.proxy",
+    "pass": "x",
+    "tls": false,
+    "insecure_skip_verify": false,
+    "backoff_min_ms": 1000,
+    "backoff_max_ms": 60000,
+    "socks_proxy": {
+      "enabled": true,
+      "type": "socks5",
+      "host": "127.0.0.1",
+      "port": 1080,
+      "username": "",
+      "password": ""
+    }
+  }
+}
+```
+
+SOCKS5 proxy configuration fields:
+- `enabled` – set to `true` to route upstream connections through the proxy.
+- `type` – must be `"socks5"` (SOCKS4 is not supported).
+- `host` – SOCKS5 proxy server hostname or IP address.
+- `port` – SOCKS5 proxy server port.
+- `username` – optional username for SOCKS5 authentication (leave empty if not required).
+- `password` – optional password for SOCKS5 authentication (leave empty if not required).
+
+**Important Notes:**
+- The proxy is only used for upstream pool connections. Downstream miner connections are not proxied.
+- TLS connections work transparently through SOCKS5 – the proxy establishes the TCP connection, then Karoo performs the TLS handshake.
+- When the proxy is disabled (`enabled: false`), connections are made directly to the upstream pool.
+- Only SOCKS5 is supported. SOCKS4 proxies will be rejected during startup.
 
 ### HTTP API
 - `GET /healthz` – liveness probe that returns `ok` when the process is running.
