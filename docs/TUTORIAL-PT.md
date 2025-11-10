@@ -3,7 +3,7 @@
 Passo a passo completo para compilar, configurar e operar o proxy Stratum V1 do Karoo.
 
 ## 1. Requisitos
-- Go 1.25.4+
+- Go 1.25+ (testado com 1.25.4)
 - Git
 - Acesso a um pool Stratum V1 (URL + template de worker)
 - Shell Linux ou macOS (Windows via WSL funciona)
@@ -13,7 +13,7 @@ Passo a passo completo para compilar, configurar e operar o proxy Stratum V1 do 
 ```bash
 git clone https://github.com/carlosrabelo/karoo.git
 cd karoo
-make build            # gera ./bin/karoo
+make build            # gera ./bin/karoo via módulo core
 ```
 
 Se preferir instalar direto com Go:
@@ -22,6 +22,8 @@ Se preferir instalar direto com Go:
 go install github.com/carlosrabelo/karoo/core/cmd/karoo@latest
 ```
 
+O projeto usa estrutura hierárquica de Makefiles. Todas as operações de build são automaticamente encaminhadas para o módulo `core/`.
+
 ## 3. Preparar a Configuração
 
 ```bash
@@ -29,11 +31,11 @@ cp config/config.example.json config.json
 ```
 
 Edite `config.json` e ajuste:
-- `proxy.listen`: host/porta exposta aos mineradores (padrão `0.0.0.0:3333`).
-- `upstream.host` / `upstream.port`: endpoint do pool (ex.: `pool.example.com:3333`).
+- `proxy.listen`: host/porta exposta aos mineradores (padrão `:3334` no exemplo).
+- `upstream.host` / `upstream.port`: endpoint do pool (ex.: `pool.example.org:3333`).
 - `upstream.user`: carteira ou conta + sufixo opcional de worker (`carteira.worker`).
 - `upstream.pass`: senha esperada pelo pool (normalmente `x`).
-- Opcional: habilite `vardiff`, configure `ratelimit` e escolha a porta HTTP em `http.listen` (padrão `0.0.0.0:8080`).
+- Opcional: habilite `vardiff`, configure `http.listen` para métricas (padrão `:8080`) e ajuste `compat.strict_broadcast` para peculiaridades do pool.
 
 Mantenha o arquivo próximo ao binário ou passe outro caminho usando `-config`.
 
@@ -44,6 +46,8 @@ Mantenha o arquivo próximo ao binário ou passe outro caminho usando `-config`.
 # ou
 make run                       # compila (se preciso) e executa com ./config.json
 ```
+
+O binário é compilado no módulo `core/` e colocado em `./bin/karoo`. O comando `make run` gerencia o build automaticamente e encaminha a execução para o módulo core.
 
 O Karoo imediatamente:
 1. Escuta mineradores em `proxy.listen`.
@@ -72,6 +76,8 @@ curl http://localhost:8080/status | jq
 
 ### Docker / docker-compose
 ```bash
+make docker                    # build via módulo deploy
+# ou manualmente:
 cd deploy/docker
 docker compose up --build
 ```
@@ -79,6 +85,8 @@ Monte seu `config.json` ou inclua-o na imagem (veja `deploy/docker/Dockerfile`).
 
 ### Serviço systemd
 ```bash
+make systemd                   # instala via módulo deploy
+# ou manualmente:
 sudo cp deploy/systemd/karoo.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now karoo
@@ -91,9 +99,12 @@ kubectl apply -f deploy/k8s/
 ```
 Atualize o ConfigMap e os manifestos de Service conforme necessário.
 
+Todos os comandos de deploy são orquestrados através da estrutura hierárquica de Makefiles.
+
 ## 8. Dicas de Troubleshooting
 - Conexão upstream instável: confira `upstream.host`, regras de firewall e TLS.
 - Shares rejeitadas: valide se os mineradores falam Stratum V1 e ajuste `compat.strict_broadcast`.
-- IPs banidos: aumente `max_connections_per_ip` ou desabilite `ratelimit.enabled` em redes confiáveis.
+- Problemas de build: certifique-se de ter Go 1.25+ instalado e execute `make mod-tidy` para limpar dependências.
+- Conexão recusada: verifique se a porta `proxy.listen` está disponível e não bloqueada pelo firewall.
 
-Para detalhes adicionais, consulte o `README-PT.md`.
+Para detalhes adicionais, consulte o `README-PT.md`. Execute `make help` para ver todos os comandos disponíveis.

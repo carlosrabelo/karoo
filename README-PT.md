@@ -47,6 +47,7 @@ Karoo atua como intermediário entre mineradores e pools, expondo Stratum downst
 - `vardiff` – controlador de dificuldade por cliente.
 - `ratelimit` – limites e banimentos por IP.
 - `connection` – utilidades de leitura/escrita para frames Stratum.
+- `proxysocks` – suporte a proxy SOCKS5 para conexões upstream.
 - `metrics` – contadores e gauges expostos via HTTP.
 - `stratum` – helpers de codificação de requisições e respostas.
 
@@ -88,9 +89,55 @@ go build -o karoo ./cmd/karoo
 go test ./...
 ```
 
+### Suporte a Proxy SOCKS5
+
+Karoo suporta roteamento de conexões upstream através de proxy SOCKS5. Isso é útil para:
+- Roteamento de tráfego através de VPNs ou Tor
+- Contornar restrições de rede
+- Adicionar camada extra de privacidade
+
+Para habilitar o proxy SOCKS5, adicione a seção `socks_proxy` à sua configuração `upstream`:
+
+```json
+{
+  "upstream": {
+    "host": "pool.example.com",
+    "port": 3333,
+    "user": "your_wallet_address.proxy",
+    "pass": "x",
+    "tls": false,
+    "insecure_skip_verify": false,
+    "backoff_min_ms": 1000,
+    "backoff_max_ms": 60000,
+    "socks_proxy": {
+      "enabled": true,
+      "type": "socks5",
+      "host": "127.0.0.1",
+      "port": 1080,
+      "username": "",
+      "password": ""
+    }
+  }
+}
+```
+
+Campos de configuração SOCKS5:
+- `enabled` – defina como `true` para rotear conexões upstream através do proxy.
+- `type` – deve ser `"socks5"` (SOCKS4 não é suportado).
+- `host` – hostname ou endereço IP do servidor proxy SOCKS5.
+- `port` – porta do servidor proxy SOCKS5.
+- `username` – nome de usuário opcional para autenticação SOCKS5 (deixe vazio se não for necessário).
+- `password` – senha opcional para autenticação SOCKS5 (deixe vazio se não for necessário).
+
+**Notas Importantes:**
+- O proxy é usado apenas para conexões upstream com pools. Conexões downstream de mineradores não são roteadas.
+- Conexões TLS funcionam transparentemente através de SOCKS5 – o proxy estabelece a conexão TCP, então Karoo realiza o handshake TLS.
+- Quando o proxy está desabilitado (`enabled: false`), as conexões são feitas diretamente ao pool upstream.
+- Apenas SOCKS5 é suportado. Proxies SOCKS4 serão rejeitados durante a inicialização.
+
 ### Arquivo de configuração
 
-A configuração padrão escuta em `:3334`, conecta ao pool definido em `config.json` e expõe HTTP em `:8080`. Copie `config/config.example.json` (ou `core/config.example.json` ao trabalhar dentro do módulo Go) e ajuste conforme necessário:
+A configuração padrão escuta em `:3333`, conecta ao pool definido em `config.json` e expõe HTTP em `:8080`. Copie `config/config.example.json` (ou `core/config.example.json` ao trabalhar dentro do módulo Go) e ajuste conforme necessário:
 
 ```json
 {

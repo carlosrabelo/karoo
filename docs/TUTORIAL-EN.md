@@ -3,7 +3,7 @@
 End-to-end walkthrough to compile, configure, and operate the Karoo Stratum V1 proxy.
 
 ## 1. Requirements
-- Go 1.25.4+
+- Go 1.25+ (tested with 1.25.4)
 - Git
 - Access to a Stratum V1 pool (URL + worker template)
 - Linux or macOS shell (Windows works via WSL)
@@ -13,7 +13,7 @@ End-to-end walkthrough to compile, configure, and operate the Karoo Stratum V1 p
 ```bash
 git clone https://github.com/carlosrabelo/karoo.git
 cd karoo
-make build            # produces ./bin/karoo
+make build            # produces ./bin/karoo from core module
 ```
 
 Alternatively, install straight from Go:
@@ -22,6 +22,8 @@ Alternatively, install straight from Go:
 go install github.com/carlosrabelo/karoo/core/cmd/karoo@latest
 ```
 
+The project uses a hierarchical Makefile structure. All build operations are forwarded to the `core/` module automatically.
+
 ## 3. Prepare the Configuration
 
 ```bash
@@ -29,11 +31,11 @@ cp config/config.example.json config.json
 ```
 
 Edit `config.json` and set at least:
-- `proxy.listen`: host/port Karoo exposes to your miners (default `0.0.0.0:3333`).
-- `upstream.host` / `upstream.port`: pool endpoint (e.g., `stratum+tcp://pool.example.com:3333`).
+- `proxy.listen`: host/port Karoo exposes to your miners (default `:3334` in example).
+- `upstream.host` / `upstream.port`: pool endpoint (e.g., `pool.example.org:3333`).
 - `upstream.user`: wallet or account plus optional worker suffix (`wallet.worker`).
 - `upstream.pass`: password expected by the pool (`x` for most BTC pools).
-- Optional: enable `vardiff`, tweak `ratelimit`, and select an HTTP port under `http.listen` (default `0.0.0.0:8080`).
+- Optional: enable `vardiff`, configure `http.listen` for metrics (default `:8080`), and adjust `compat.strict_broadcast` for pool quirks.
 
 Keep the file alongside the binary or point Karoo to a different path with `-config`.
 
@@ -44,6 +46,8 @@ Keep the file alongside the binary or point Karoo to a different path with `-con
 # or
 make run                       # builds (if needed) and runs with ./config.json
 ```
+
+The binary is built in the `core/` module and placed in `./bin/karoo`. The `make run` command handles the build automatically and forwards execution to the core module.
 
 Karoo immediately:
 1. Listens for miners on `proxy.listen`.
@@ -72,6 +76,8 @@ curl http://localhost:8080/status | jq
 
 ### Docker / docker-compose
 ```bash
+make docker                    # builds via deploy module
+# or manually:
 cd deploy/docker
 docker compose up --build
 ```
@@ -79,6 +85,8 @@ Mount your `config.json` or bake it into the image (see `deploy/docker/Dockerfil
 
 ### Systemd Service
 ```bash
+make systemd                   # installs via deploy module
+# or manually:
 sudo cp deploy/systemd/karoo.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now karoo
@@ -91,9 +99,12 @@ kubectl apply -f deploy/k8s/
 ```
 Patch the ConfigMap and Service manifests with your own `config.json` and exposure rules.
 
+All deployment commands are orchestrated through the hierarchical Makefile structure.
+
 ## 8. Troubleshooting
 - Upstream connection flaps: verify `upstream.host` is reachable and your firewall allows the outbound port.
 - Miners rejected: ensure they use Stratum V1 and that `compat.strict_broadcast` fits your pool quirks.
-- Rate-limit bans: raise `max_connections_per_ip` or disable `ratelimit.enabled` for trusted networks.
+- Build issues: ensure Go 1.25+ is installed and run `make mod-tidy` to clean dependencies.
+- Connection refused: check that `proxy.listen` port is available and not blocked by firewall.
 
-Refer back to `README.md` for deeper explanations of VarDiff, rate limiting, and architecture.
+Refer back to `README.md` for deeper explanations of VarDiff, rate limiting, and architecture. Run `make help` to see all available commands.
