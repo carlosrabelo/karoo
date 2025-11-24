@@ -1,73 +1,69 @@
-## Karoo - Stratum V1 Proxy (root orchestrator)
+CORE_DIR := core
+DEPLOY_DIR := deploy
+FORWARD_DIRS := $(CORE_DIR) $(DEPLOY_DIR)
 
-ROOT_DIR        := $(CURDIR)
-CORE_DIR        := core
-DEPLOY_DIR      := deploy
-FORWARD_DIRS    := $(CORE_DIR) $(DEPLOY_DIR)
-MAKEFLAGS      += --no-print-directory
+.DEFAULT_GOAL := help
 
-.DEFAULT_GOAL   := help
+MAKEFLAGS += --no-print-directory
 
-.PHONY: help build run install test lint mod-tidy docker systemd clean info \
-	quality testing deployment utilities core-% deploy-% %
+.PHONY: help build clean core-% deploy-% deployment docker info install lint mod-tidy quality run systemd test testing utilities
 
-help:
-	@printf "Karoo - Stratum V1 Proxy\n\n"
-	@printf "Build & Install\n"
-	@printf "  %-15s %s\n" "build" "Build Go binary via core module"
-	@printf "  %-15s %s\n" "install" "Install binary (auto root/user paths)"
-	@printf "  %-15s %s\n" "run" "Run proxy using local config.json"
-	@printf "  %-15s %s\n" "clean" "Remove build artifacts (core)"
-	@printf "\n"
-	@printf "Quality\n"
-	@printf "  %-15s %s\n" "quality" "Run quality checks via core"
-	@printf "  %-15s %s\n" "lint" "Run golangci-lint through core"
-	@printf "  %-15s %s\n" "mod-tidy" "Execute go mod tidy and verify"
-	@printf "\n"
-	@printf "Testing\n"
-	@printf "  %-15s %s\n" "testing" "Run test suite via core"
-	@printf "  %-15s %s\n" "test" "Execute go test ./... from core"
-	@printf "\n"
-	@printf "Deployment\n"
-	@printf "  %-15s %s\n" "deployment" "Deploy via deploy module"
-	@printf "  %-15s %s\n" "docker" "Build container image via deploy"
-	@printf "  %-15s %s\n" "systemd" "Install systemd unit via deploy"
-	@printf "\n"
-	@printf "Utilities\n"
-	@printf "  %-15s %s\n" "utilities" "Utility commands via core"
-	@printf "  %-15s %s\n" "info" "Show project information from core"
-	@printf "  %-15s %s\n" "core-<tgt>" "Forward target to core Makefile"
-	@printf "  %-15s %s\n" "deploy-<tgt>" "Forward target to deploy Makefile"
+build: ## Build Go binary via core module
+	@$(MAKE) -C $(CORE_DIR) build
 
-build run install test lint mod-tidy:
-	@$(MAKE) -C $(CORE_DIR) $@
+clean: ## Remove build artifacts (core)
+	@$(MAKE) -C $(CORE_DIR) clean
 
-docker systemd:
-	@$(MAKE) -C $(DEPLOY_DIR) $@
-
-clean:
-	@$(MAKE) -C $(CORE_DIR) $@
-
-info:
-	@$(MAKE) -C $(CORE_DIR) $@
-
-quality:
-	@$(MAKE) -C $(CORE_DIR) $@
-
-testing:
-	@$(MAKE) -C $(CORE_DIR) $@
-
-deployment:
-	@$(MAKE) -C $(DEPLOY_DIR) $@
-
-utilities:
-	@$(MAKE) -C $(CORE_DIR) $@
-
-core-%:
+core-%: ## Forward target to core Makefile
 	@$(MAKE) -C $(CORE_DIR) $*
 
-deploy-%:
+deploy-%: ## Forward target to deploy Makefile
 	@$(MAKE) -C $(DEPLOY_DIR) $*
+
+deployment: ## Deploy via deploy module
+	@$(MAKE) -C $(DEPLOY_DIR) deployment
+
+docker: ## Build container image via deploy
+	@$(MAKE) -C $(DEPLOY_DIR) docker
+
+help: ## Show available targets
+	@echo "KAROO - Stratum V1 Proxy"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) \
+		| sort \
+		| awk 'BEGIN {FS = ":.*## "} {printf "  %-15s %s\n", $$1, $$2}'
+	@echo ""
+	@echo "For more targets, run 'make -C core help' or 'make -C deploy help'"
+
+info: ## Show project information from core
+	@$(MAKE) -C $(CORE_DIR) info
+
+install: ## Install binary (auto root/user paths)
+	@$(MAKE) -C $(CORE_DIR) install
+
+lint: ## Run golangci-lint through core
+	@$(MAKE) -C $(CORE_DIR) lint
+
+mod-tidy: ## Execute go mod tidy and verify
+	@$(MAKE) -C $(CORE_DIR) mod-tidy
+
+quality: ## Run quality checks via core
+	@$(MAKE) -C $(CORE_DIR) quality
+
+run: ## Run proxy using local config.json
+	@$(MAKE) -C $(CORE_DIR) run
+
+systemd: ## Install systemd unit via deploy
+	@$(MAKE) -C $(DEPLOY_DIR) systemd
+
+test: ## Execute go test ./... from core
+	@$(MAKE) -C $(CORE_DIR) test
+
+testing: ## Run test suite via core
+	@$(MAKE) -C $(CORE_DIR) testing
+
+utilities: ## Utility commands via core
+	@$(MAKE) -C $(CORE_DIR) utilities
 
 define forward_target
 set -e; \
