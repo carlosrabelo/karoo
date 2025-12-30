@@ -66,7 +66,7 @@ func TestAddRemoveClient(t *testing.T) {
 		t.Error("Client not found in manager")
 	}
 	if stats == nil {
-		t.Error("Client stats not initialized")
+		t.Fatal("Client stats not initialized")
 	}
 	if stats.CurrentDifficulty != float64(cfg.MinDiff) {
 		t.Errorf("Expected initial difficulty %d, got %f", cfg.MinDiff, stats.CurrentDifficulty)

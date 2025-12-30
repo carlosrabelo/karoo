@@ -65,6 +65,19 @@ func NewManager(cfg *Config) *Manager {
 	}
 }
 
+// UpdateConfig updates the manager configuration
+func (m *Manager) UpdateConfig(cfg *Config) {
+	m.clientsMu.Lock()
+	defer m.clientsMu.Unlock()
+	m.cfg = cfg
+	// Update retarget interval for all clients if changed
+	for _, stats := range m.clients {
+		stats.mu.Lock()
+		stats.RetargetInterval = time.Duration(cfg.AdjustEveryMs) * time.Millisecond
+		stats.mu.Unlock()
+	}
+}
+
 // AddClient adds a client to vardiff management
 func (m *Manager) AddClient(cl Client) {
 	if !m.cfg.Enabled {

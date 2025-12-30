@@ -195,7 +195,7 @@ func TestProxyDialer_DialContext(t *testing.T) {
 	// Try to dial a non-existent address with a short timeout
 	conn, err := dialer.DialContext(ctx, "tcp", "192.0.2.1:9999")
 	if err == nil {
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		t.Error("Expected error when dialing non-existent address")
 	}
 }
@@ -217,7 +217,7 @@ func TestProxyDialer_DialContext_Cancelled(t *testing.T) {
 	// Try to dial with cancelled context
 	conn, err := dialer.DialContext(ctx, "tcp", "192.0.2.1:9999")
 	if err == nil {
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		t.Error("Expected error when using cancelled context")
 	}
 
@@ -373,7 +373,7 @@ func TestProxyDialer_Dial(t *testing.T) {
 	// Try to dial a non-existent address
 	conn, err := dialer.Dial("tcp", "192.0.2.1:9999")
 	if err == nil {
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		t.Error("Expected error when dialing non-existent address")
 	}
 }

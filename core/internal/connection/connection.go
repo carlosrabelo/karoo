@@ -123,7 +123,7 @@ func (u *Upstream) Dial(ctx context.Context) error {
 			conf := &tls.Config{InsecureSkipVerify: u.cfg.Upstream.InsecureSkipVerify}
 			c = tls.Client(rawConn, conf)
 			if err := c.(*tls.Conn).Handshake(); err != nil {
-				rawConn.Close()
+				_ = rawConn.Close()
 				return fmt.Errorf("TLS handshake through SOCKS proxy failed: %w", err)
 			}
 		} else {
@@ -155,6 +155,18 @@ func (u *Upstream) Dial(ctx context.Context) error {
 	u.pending = make(map[int64]PendingReq)
 	u.respMu.Unlock()
 	return nil
+}
+
+// UpdateTarget updates upstream connection details for failover
+func (u *Upstream) UpdateTarget(host string, port int, user, pass string, tls bool, insecure bool) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.cfg.Upstream.Host = host
+	u.cfg.Upstream.Port = port
+	u.cfg.Upstream.User = user
+	u.cfg.Upstream.Pass = pass
+	u.cfg.Upstream.TLS = tls
+	u.cfg.Upstream.InsecureSkipVerify = insecure
 }
 
 // Close closes upstream connection

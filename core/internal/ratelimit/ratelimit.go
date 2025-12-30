@@ -61,6 +61,13 @@ func NewLimiter(cfg *Config) *Limiter {
 	return l
 }
 
+// UpdateConfig updates the limiter configuration
+func (l *Limiter) UpdateConfig(cfg *Config) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.cfg = cfg
+}
+
 // AllowConnection checks if a connection from the given address should be allowed
 func (l *Limiter) AllowConnection(addr net.Addr) bool {
 	if !l.cfg.Enabled {
@@ -197,10 +204,10 @@ func (l *Limiter) GetStats(addr net.Addr) map[string]interface{} {
 
 	if !exists {
 		return map[string]interface{}{
-			"ip":                  ip,
-			"active_connections":  0,
+			"ip":                    ip,
+			"active_connections":    0,
 			"connections_in_minute": 0,
-			"banned":              false,
+			"banned":                false,
 		}
 	}
 
@@ -236,12 +243,12 @@ func (l *Limiter) GetGlobalStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"total_ips":          totalIPs,
-		"total_active":       totalActive,
-		"banned_ips":         bannedIPs,
-		"max_per_ip":         l.cfg.MaxConnectionsPerIP,
-		"max_per_minute":     l.cfg.MaxConnectionsPerMinute,
-		"ban_duration_sec":   l.cfg.BanDurationSeconds,
+		"total_ips":        totalIPs,
+		"total_active":     totalActive,
+		"banned_ips":       bannedIPs,
+		"max_per_ip":       l.cfg.MaxConnectionsPerIP,
+		"max_per_minute":   l.cfg.MaxConnectionsPerMinute,
+		"ban_duration_sec": l.cfg.BanDurationSeconds,
 	}
 }
 
@@ -269,8 +276,8 @@ func (l *Limiter) cleanup() {
 
 		// Remove if no active connections and not banned and no recent connections
 		if stats.activeConnections == 0 &&
-		   now.After(stats.bannedUntil) &&
-		   (len(stats.connectionTimes) == 0 || stats.connectionTimes[len(stats.connectionTimes)-1].Before(cutoff)) {
+			now.After(stats.bannedUntil) &&
+			(len(stats.connectionTimes) == 0 || stats.connectionTimes[len(stats.connectionTimes)-1].Before(cutoff)) {
 			delete(l.stats, ip)
 		}
 

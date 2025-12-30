@@ -48,9 +48,21 @@ func TestNewClient(t *testing.T) {
 			MaxClients   int    `json:"max_clients"`
 			ReadBuf      int    `json:"read_buf"`
 			WriteBuf     int    `json:"write_buf"`
+			TLS          struct {
+				Enabled bool   `json:"enabled"`
+				Cert    string `json:"cert_file"`
+				Key     string `json:"key_file"`
+			} `json:"tls"`
 		}{
 			ReadBuf:  4096,
 			WriteBuf: 4096,
+			TLS: struct {
+				Enabled bool   `json:"enabled"`
+				Cert    string `json:"cert_file"`
+				Key     string `json:"key_file"`
+			}{
+				Enabled: false,
+			},
 		},
 		Upstream: struct {
 			Host               string `json:"host"`
@@ -87,8 +99,8 @@ func TestNewClient(t *testing.T) {
 
 	// Create a mock connection
 	server, client := net.Pipe()
-	defer server.Close()
-	defer client.Close()
+	defer func() { _ = server.Close() }()
+	defer func() { _ = client.Close() }()
 
 	cl := NewClient(client, cfg)
 
@@ -208,15 +220,27 @@ func TestClientWriteOperations(t *testing.T) {
 			MaxClients   int    `json:"max_clients"`
 			ReadBuf      int    `json:"read_buf"`
 			WriteBuf     int    `json:"write_buf"`
+			TLS          struct {
+				Enabled bool   `json:"enabled"`
+				Cert    string `json:"cert_file"`
+				Key     string `json:"key_file"`
+			} `json:"tls"`
 		}{
 			ReadBuf:  4096,
 			WriteBuf: 4096,
+			TLS: struct {
+				Enabled bool   `json:"enabled"`
+				Cert    string `json:"cert_file"`
+				Key     string `json:"key_file"`
+			}{
+				Enabled: false,
+			},
 		},
 	}
 
 	// Create a client with a closed connection to test error handling
 	server, client := net.Pipe()
-	server.Close() // Close server side immediately
+	_ = server.Close() // Close server side immediately
 	cl := NewClient(client, cfg)
 
 	// Test WriteLine with closed connection should return error
@@ -236,14 +260,14 @@ func TestClientWriteOperations(t *testing.T) {
 		t.Error("Expected error when writing JSON to closed connection")
 	}
 
-	client.Close()
+	_ = client.Close()
 }
 
 func TestClientAtomicOperations(t *testing.T) {
 	cfg := &Config{}
 	server, client := net.Pipe()
-	defer server.Close()
-	defer client.Close()
+	defer func() { _ = server.Close() }()
+	defer func() { _ = client.Close() }()
 
 	cl := NewClient(client, cfg)
 

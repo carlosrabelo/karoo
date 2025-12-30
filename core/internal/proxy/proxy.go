@@ -4,7 +4,9 @@ package proxy
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -21,9 +23,8 @@ import (
 	"github.com/carlosrabelo/karoo/core/internal/routing"
 	"github.com/carlosrabelo/karoo/core/internal/stratum"
 	"github.com/carlosrabelo/karoo/core/internal/vardiff"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
-
-const proxyUserAgent = "karoo/v0.0.1"
 
 // Client represents a mining client connection
 type Client struct {
@@ -44,6 +45,26 @@ type Client struct {
 	clientMetrics    *metrics.ClientMetrics
 }
 
+// UpstreamConfig holds upstream connection details
+type UpstreamConfig struct {
+	Host               string `json:"host"`
+	Port               int    `json:"port"`
+	User               string `json:"user"`
+	Pass               string `json:"pass"`
+	TLS                bool   `json:"tls"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify"`
+	BackoffMinMs       int    `json:"backoff_min_ms"`
+	BackoffMaxMs       int    `json:"backoff_max_ms"`
+	SocksProxy         struct {
+		Enabled  bool   `json:"enabled"`
+		Type     string `json:"type"` // "socks4" or "socks5"
+		Host     string `json:"host"`
+		Port     int    `json:"port"`
+		Username string `json:"username"` // optional for SOCKS5
+		Password string `json:"password"` // optional for SOCKS5
+	} `json:"socks_proxy"`
+}
+
 // Config holds proxy configuration
 type Config struct {
 	Proxy struct {
@@ -52,26 +73,15 @@ type Config struct {
 		MaxClients   int    `json:"max_clients"`
 		ReadBuf      int    `json:"read_buf"`
 		WriteBuf     int    `json:"write_buf"`
+		TLS          struct {
+			Enabled bool   `json:"enabled"`
+			Cert    string `json:"cert_file"`
+			Key     string `json:"key_file"`
+		} `json:"tls"`
 	} `json:"proxy"`
-	Upstream struct {
-		Host               string `json:"host"`
-		Port               int    `json:"port"`
-		User               string `json:"user"`
-		Pass               string `json:"pass"`
-		TLS                bool   `json:"tls"`
-		InsecureSkipVerify bool   `json:"insecure_skip_verify"`
-		BackoffMinMs       int    `json:"backoff_min_ms"`
-		BackoffMaxMs       int    `json:"backoff_max_ms"`
-		SocksProxy         struct {
-			Enabled  bool   `json:"enabled"`
-			Type     string `json:"type"` // "socks4" or "socks5"
-			Host     string `json:"host"`
-			Port     int    `json:"port"`
-			Username string `json:"username"` // optional for SOCKS5
-			Password string `json:"password"` // optional for SOCKS5
-		} `json:"socks_proxy"`
-	} `json:"upstream"`
-	HTTP struct {
+	Upstream UpstreamConfig   `json:"upstream"`
+	Backups  []UpstreamConfig `json:"backups"`
+	HTTP     struct {
 		Listen string `json:"listen"`
 		Pprof  bool   `json:"pprof"`
 	} `json:"http"`
@@ -183,6 +193,36 @@ func NewProxy(cfg *Config) *Proxy {
 		rl:      rl,
 		clients: make(map[*Client]struct{}),
 	}
+}
+
+// Reload updates proxy configuration at runtime
+func (p *Proxy) Reload(newCfg *Config) {
+	log.Println("Reloading configuration...")
+
+	// Update Config (Struct copy)
+	// We update the fields implementation pointers point to
+	*p.cfg = *newCfg
+
+	// Update specific managers that support reloading
+	// VarDiff
+	p.vd.UpdateConfig(&vardiff.Config{
+		Enabled:       newCfg.VarDiff.Enabled,
+		TargetSeconds: newCfg.VarDiff.TargetSeconds,
+		MinDiff:       newCfg.VarDiff.MinDiff,
+		MaxDiff:       newCfg.VarDiff.MaxDiff,
+		AdjustEveryMs: newCfg.VarDiff.AdjustEveryMs,
+	})
+
+	// RateLimit
+	p.rl.UpdateConfig(&ratelimit.Config{
+		Enabled:                 newCfg.RateLimit.Enabled,
+		MaxConnectionsPerIP:     newCfg.RateLimit.MaxConnectionsPerIP,
+		MaxConnectionsPerMinute: newCfg.RateLimit.MaxConnectionsPerMinute,
+		BanDurationSeconds:      newCfg.RateLimit.BanDurationSeconds,
+		CleanupIntervalSeconds:  newCfg.RateLimit.CleanupIntervalSeconds,
+	})
+
+	log.Println("Configuration reloaded")
 }
 
 // NewClient creates a new client instance
@@ -309,11 +349,25 @@ func (c *Client) WriteLine(line string) error {
 
 // AcceptLoop accepts new client connections
 func (p *Proxy) AcceptLoop(ctx context.Context) error {
-	ln, err := net.Listen("tcp", p.cfg.Proxy.Listen)
+	var ln net.Listener
+	var err error
+
+	if p.cfg.Proxy.TLS.Enabled {
+		cert, err := tls.LoadX509KeyPair(p.cfg.Proxy.TLS.Cert, p.cfg.Proxy.TLS.Key)
+		if err != nil {
+			return fmt.Errorf("loading tls keys: %w", err)
+		}
+		tlsCfg := &tls.Config{Certificates: []tls.Certificate{cert}}
+		ln, err = tls.Listen("tcp", p.cfg.Proxy.Listen, tlsCfg)
+		log.Printf("proxy: listening on %s (TLS enabled)", p.cfg.Proxy.Listen)
+	} else {
+		ln, err = net.Listen("tcp", p.cfg.Proxy.Listen)
+		log.Printf("proxy: listening on %s", p.cfg.Proxy.Listen)
+	}
+
 	if err != nil {
 		return err
 	}
-	log.Printf("proxy: listening on %s", p.cfg.Proxy.Listen)
 	go func() {
 		<-ctx.Done()
 		_ = ln.Close()
@@ -430,26 +484,70 @@ func (p *Proxy) ClientLoop(ctx context.Context, cl *Client) {
 	}
 }
 
-// UpstreamLoop manages upstream connection and message handling
+// UpstreamLoop manages upstream connection and message handling with failover support
 func (p *Proxy) UpstreamLoop(ctx context.Context) {
-	min := time.Duration(p.cfg.Upstream.BackoffMinMs) * time.Millisecond
-	max := time.Duration(p.cfg.Upstream.BackoffMaxMs) * time.Millisecond
+	currentIdx := 0
 
 	for ctx.Err() == nil {
+		// Rebuild list of upstreams to try (Primary + Backups) on every iteration
+		// This allows hot-reloading of upstream configuration
+		configs := []UpstreamConfig{p.cfg.Upstream}
+		configs = append(configs, p.cfg.Backups...)
+
+		// Safety check if configs is empty (shouldn't happen with validation)
+		if len(configs) == 0 {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		// Adjust index if out of bounds (can happen if backups removed)
+		if currentIdx >= len(configs) {
+			currentIdx = 0
+		}
+
+		activeCfg := configs[currentIdx]
+
+		// Update upstream target
+		p.up.UpdateTarget(
+			activeCfg.Host,
+			activeCfg.Port,
+			activeCfg.User,
+			activeCfg.Pass,
+			activeCfg.TLS,
+			activeCfg.InsecureSkipVerify,
+		)
+
+		min := time.Duration(activeCfg.BackoffMinMs) * time.Millisecond
+		max := time.Duration(activeCfg.BackoffMaxMs) * time.Millisecond
+
 		if err := p.up.Dial(ctx); err != nil {
 			d := connection.Backoff(min, max)
-			log.Printf("upstream dial fail: %v; retry in %s", err, d)
+			log.Printf("upstream dial fail (idx=%d): %v; retry in %s", currentIdx, err, d)
+
+			// Failover logic: switch to next upstream
+			currentIdx = (currentIdx + 1) % len(configs)
+			if currentIdx != 0 {
+				log.Printf("switching to backup upstream index %d", currentIdx)
+			} else {
+				log.Printf("cycled through all upstreams, back to primary")
+			}
+
 			time.Sleep(d)
 			continue
 		}
+
 		p.mx.UpConnected.Store(true)
-		log.Printf("upstream connected")
+		log.Printf("upstream connected (idx=%d)", currentIdx)
 
 		// handshake
 		if err := p.up.SubscribeAuthorize(); err != nil {
 			log.Printf("handshake err: %v", err)
 			p.up.Close()
 			p.mx.UpConnected.Store(false)
+
+			// Try next upstream on handshake failure
+			currentIdx = (currentIdx + 1) % len(configs)
+			time.Sleep(1 * time.Second)
 			continue
 		}
 
@@ -478,14 +576,14 @@ func (p *Proxy) UpstreamLoop(ctx context.Context) {
 		}
 		p.up.Close()
 		p.mx.UpConnected.Store(false)
-
-		// reset readiness flags when upstream disconnects
 		p.nm.Reset()
 
-		// backoff antes de redial (se o manager ainda quiser upstream)
 		d := connection.Backoff(min, max)
 		log.Printf("upstream disconnected; retry in %s", d)
 		time.Sleep(d)
+
+		// Try next upstream on disconnect
+		currentIdx = (currentIdx + 1) % len(configs)
 	}
 }
 
@@ -532,6 +630,7 @@ func (p *Proxy) HttpServe(ctx context.Context) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)
 	})
+	http.Handle("/metrics", promhttp.Handler())
 	srv := &http.Server{Addr: p.cfg.HTTP.Listen}
 	go func() {
 		<-ctx.Done()

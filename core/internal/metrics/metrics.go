@@ -19,16 +19,26 @@ type Collector struct {
 	// Timing metrics
 	LastNotifyUnix atomic.Int64
 	LastSetDiff    atomic.Int64
+
+	// Prometheus collectors
+	Prom *PrometheusCollectors
 }
 
 // NewCollector creates a new metrics collector
 func NewCollector() *Collector {
-	return &Collector{}
+	return &Collector{
+		Prom: InitPrometheus("karoo"),
+	}
 }
 
 // SetUpstreamConnected sets the upstream connection status
 func (m *Collector) SetUpstreamConnected(connected bool) {
 	m.UpConnected.Store(connected)
+	val := 0.0
+	if connected {
+		val = 1.0
+	}
+	m.Prom.UpConnected.Set(val)
 }
 
 // IsUpstreamConnected returns the upstream connection status
@@ -39,11 +49,13 @@ func (m *Collector) IsUpstreamConnected() bool {
 // IncrementClients increments the active client count
 func (m *Collector) IncrementClients() {
 	m.ClientsActive.Add(1)
+	m.Prom.ClientsActive.Inc()
 }
 
 // DecrementClients decrements the active client count
 func (m *Collector) DecrementClients() {
 	m.ClientsActive.Add(-1)
+	m.Prom.ClientsActive.Dec()
 }
 
 // GetClientsActive returns the current number of active clients
@@ -54,11 +66,13 @@ func (m *Collector) GetClientsActive() int64 {
 // IncrementSharesOK increments the accepted shares counter
 func (m *Collector) IncrementSharesOK() {
 	m.SharesOK.Add(1)
+	m.Prom.SharesOK.Inc()
 }
 
 // IncrementSharesBad increments the rejected shares counter
 func (m *Collector) IncrementSharesBad() {
 	m.SharesBad.Add(1)
+	m.Prom.SharesBad.Inc()
 }
 
 // GetSharesOK returns the total accepted shares
@@ -79,6 +93,7 @@ func (m *Collector) GetTotalShares() uint64 {
 // SetLastNotify updates the last notification timestamp
 func (m *Collector) SetLastNotify(t time.Time) {
 	m.LastNotifyUnix.Store(t.Unix())
+	m.Prom.LastNotify.Set(float64(t.Unix()))
 }
 
 // GetLastNotify returns the last notification timestamp
@@ -90,6 +105,7 @@ func (m *Collector) GetLastNotify() time.Time {
 // SetLastSetDifficulty updates the last set difficulty timestamp
 func (m *Collector) SetLastSetDifficulty(difficulty int64) {
 	m.LastSetDiff.Store(difficulty)
+	m.Prom.LastSetDiff.Set(float64(difficulty))
 }
 
 // GetLastSetDifficulty returns the last set difficulty

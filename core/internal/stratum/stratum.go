@@ -132,9 +132,7 @@ func CopyID(id *int64) *int64 {
 // ParseURL parses a Stratum URL into host and port components
 func ParseURL(url string, host *string, port *int) {
 	// Parse stratum+tcp://host:port or just host:port
-	if strings.HasPrefix(url, "stratum+tcp://") {
-		url = strings.TrimPrefix(url, "stratum+tcp://")
-	}
+	url = strings.TrimPrefix(url, "stratum+tcp://")
 
 	h, p, err := net.SplitHostPort(url)
 	if err != nil {

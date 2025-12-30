@@ -48,7 +48,7 @@ func main() {
 
 	// Handle signals
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
 	// Start HTTP server if enabled
 	if cfg.HTTP.Listen != "" {
@@ -75,15 +75,26 @@ func main() {
 	}()
 
 	// Wait for signal
-	<-sigCh
-	log.Printf("Shutting down...")
+	for {
+		sig := <-sigCh
+		if sig == syscall.SIGHUP {
+			log.Printf("Received SIGHUP, reloading config...")
+			newCfg, err := loadConfig(*cfgFile)
+			if err != nil {
+				log.Printf("Failed to reload config: %v", err)
+				continue
+			}
+			p.Reload(newCfg)
+			continue
+		}
 
-	// Graceful shutdown
-	cancel()
-
-	// Give some time for graceful shutdown
-	time.Sleep(2 * time.Second)
-	log.Printf("Shutdown complete")
+		// SIGINT/SIGTERM
+		log.Printf("Shutting down...")
+		cancel()
+		time.Sleep(2 * time.Second)
+		log.Printf("Shutdown complete")
+		return
+	}
 }
 
 func loadConfig(path string) (*proxy.Config, error) {
@@ -110,15 +121,32 @@ func loadConfig(path string) (*proxy.Config, error) {
 	if cfg.Proxy.WriteBuf == 0 {
 		cfg.Proxy.WriteBuf = 4096
 	}
-	if cfg.Upstream.Port == 0 {
-		cfg.Upstream.Port = 3333
+	// Helper to set defaults and validate upstream config
+	validateUpstream := func(u *proxy.UpstreamConfig) error {
+		if u.Port == 0 {
+			u.Port = 3333
+		}
+		if u.BackoffMinMs == 0 {
+			u.BackoffMinMs = 1000
+		}
+		if u.BackoffMaxMs == 0 {
+			u.BackoffMaxMs = 30000
+		}
+
+		if u.Host == "" {
+			return fmt.Errorf("host is required")
+		}
+		if u.User == "" {
+			return fmt.Errorf("user is required")
+		}
+		if u.BackoffMaxMs < u.BackoffMinMs {
+			return fmt.Errorf("backoff_max_ms (%d) must be >= backoff_min_ms (%d)",
+				u.BackoffMaxMs, u.BackoffMinMs)
+		}
+		return nil
 	}
-	if cfg.Upstream.BackoffMinMs == 0 {
-		cfg.Upstream.BackoffMinMs = 1000
-	}
-	if cfg.Upstream.BackoffMaxMs == 0 {
-		cfg.Upstream.BackoffMaxMs = 30000
-	}
+
+	// Set VarDiff defaults
 	if cfg.VarDiff.MinDiff == 0 {
 		cfg.VarDiff.MinDiff = 1
 	}
@@ -132,18 +160,16 @@ func loadConfig(path string) (*proxy.Config, error) {
 		cfg.VarDiff.AdjustEveryMs = 60000
 	}
 
-	// Validate required fields
-	if cfg.Upstream.Host == "" {
-		return nil, fmt.Errorf("upstream.host is required")
-	}
-	if cfg.Upstream.User == "" {
-		return nil, fmt.Errorf("upstream.user is required")
+	// Validate primary upstream
+	if err := validateUpstream(&cfg.Upstream); err != nil {
+		return nil, fmt.Errorf("upstream: %w", err)
 	}
 
-	// Validate backoff configuration
-	if cfg.Upstream.BackoffMaxMs < cfg.Upstream.BackoffMinMs {
-		return nil, fmt.Errorf("upstream.backoff_max_ms (%d) must be >= backoff_min_ms (%d)",
-			cfg.Upstream.BackoffMaxMs, cfg.Upstream.BackoffMinMs)
+	// Validate backups
+	for i := range cfg.Backups {
+		if err := validateUpstream(&cfg.Backups[i]); err != nil {
+			return nil, fmt.Errorf("backup[%d]: %w", i, err)
+		}
 	}
 
 	return &cfg, nil

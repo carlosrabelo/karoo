@@ -1,10 +1,15 @@
 {
   "proxy": {
-    "listen": ":3334",
+    "listen": ":3333",
     "client_idle_ms": 180000,
-    "max_clients": 512,
-    "read_buf": 2048,
-    "write_buf": 2048
+    "max_clients": 1000,
+    "read_buf": 4096,
+    "write_buf": 4096,
+    "tls": {
+      "enabled": false,
+      "cert_file": "/path/to/cert.pem",
+      "key_file": "/path/to/key.pem"
+    }
   },
   "upstream": {
     "host": "pool.example.org",
@@ -14,7 +19,7 @@
     "tls": false,
     "insecure_skip_verify": false,
     "backoff_min_ms": 1000,
-    "backoff_max_ms": 20000,
+    "backoff_max_ms": 30000,
     "socks_proxy": {
       "enabled": false,
       "type": "socks5",
@@ -24,16 +29,43 @@
       "password": ""
     }
   },
+  "backups": [
+    {
+      "host": "backup-pool.example.org",
+      "port": 3333,
+      "user": "wallet.worker",
+      "pass": "x",
+      "tls": false,
+      "insecure_skip_verify": false,
+      "backoff_min_ms": 1000,
+      "backoff_max_ms": 30000,
+      "socks_proxy": {
+        "enabled": false,
+        "type": "socks5",
+        "host": "127.0.0.1",
+        "port": 1080,
+        "username": "",
+        "password": ""
+      }
+    }
+  ],
   "http": {
     "listen": ":8080",
     "pprof": true
   },
   "vardiff": {
-    "enabled": false,
-    "target_seconds": 18,
-    "min_diff": 8,
-    "max_diff": 16384,
+    "enabled": true,
+    "target_seconds": 15,
+    "min_diff": 1000,
+    "max_diff": 65536,
     "adjust_every_ms": 60000
+  },
+  "ratelimit": {
+    "enabled": true,
+    "max_connections_per_ip": 100,
+    "max_connections_per_minute": 60,
+    "ban_duration_seconds": 300,
+    "cleanup_interval_seconds": 60
   },
   "compat": {
     "strict_broadcast": false

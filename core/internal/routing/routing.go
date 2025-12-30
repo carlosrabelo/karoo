@@ -261,9 +261,10 @@ func (r *Router) processUpstreamResponse(msg stratum.Message) {
 		log.Printf("response write error to %s: %v", client.GetAddr(), err)
 	}
 
-	if req.Method == "mining.submit" {
+	switch req.Method {
+	case "mining.submit":
 		r.handleSubmitResponse(req, msg)
-	} else if req.Method == "mining.authorize" {
+	case "mining.authorize":
 		r.handleAuthorizeResponse(req, msg)
 	}
 }
@@ -334,9 +335,9 @@ func (r *Router) writeClient(cl Client, msg stratum.Message) {
 //   - Remaining 3 bytes (0x00ffff): mantissa (coefficient)
 //
 // Calculation:
-//   1. Extract exponent and mantissa from compact format
-//   2. Compute target = mantissa * 2^(8*(exponent-3))
-//   3. Compute difficulty = difficulty_1_target / target
+//  1. Extract exponent and mantissa from compact format
+//  2. Compute target = mantissa * 2^(8*(exponent-3))
+//  3. Compute difficulty = difficulty_1_target / target
 //
 // Where difficulty_1_target = 0xFFFF * 2^(8*(0x1d-3))
 //

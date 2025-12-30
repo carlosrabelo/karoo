@@ -23,12 +23,24 @@ func TestProxyIntegration(t *testing.T) {
 			MaxClients   int    `json:"max_clients"`
 			ReadBuf      int    `json:"read_buf"`
 			WriteBuf     int    `json:"write_buf"`
+			TLS          struct {
+				Enabled bool   `json:"enabled"`
+				Cert    string `json:"cert_file"`
+				Key     string `json:"key_file"`
+			} `json:"tls"`
 		}{
 			Listen:       "127.0.0.1:0", // Random port
 			ClientIdleMs: 5000,
 			MaxClients:   10,
 			ReadBuf:      4096,
 			WriteBuf:     4096,
+			TLS: struct {
+				Enabled bool   `json:"enabled"`
+				Cert    string `json:"cert_file"`
+				Key     string `json:"key_file"`
+			}{
+				Enabled: false,
+			},
 		},
 		Upstream: struct {
 			Host               string `json:"host"`
@@ -107,8 +119,8 @@ func TestProxyIntegration(t *testing.T) {
 
 	// Test client addition (without network operations)
 	server, client := net.Pipe()
-	defer server.Close()
-	defer client.Close()
+	defer func() { _ = server.Close() }()
+	defer func() { _ = client.Close() }()
 
 	cl := NewClient(client, cfg)
 	p.clients[cl] = struct{}{}
@@ -218,7 +230,7 @@ type MockStratumServer struct {
 func (m *MockStratumServer) HandleConnection(conn net.Conn) {
 	m.connections.Add(1)
 	defer m.connections.Add(-1)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	reader := bufio.NewReader(conn)
 
@@ -281,7 +293,7 @@ func TestEndToEndFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start mock server: %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	go func() {
 		for {
@@ -308,12 +320,24 @@ func TestEndToEndFlow(t *testing.T) {
 			MaxClients   int    `json:"max_clients"`
 			ReadBuf      int    `json:"read_buf"`
 			WriteBuf     int    `json:"write_buf"`
+			TLS          struct {
+				Enabled bool   `json:"enabled"`
+				Cert    string `json:"cert_file"`
+				Key     string `json:"key_file"`
+			} `json:"tls"`
 		}{
-			Listen:       "127.0.0.1:0",
+			Listen:       "127.0.0.1:0", // Random port
 			ClientIdleMs: 5000,
 			MaxClients:   10,
 			ReadBuf:      4096,
 			WriteBuf:     4096,
+			TLS: struct {
+				Enabled bool   `json:"enabled"`
+				Cert    string `json:"cert_file"`
+				Key     string `json:"key_file"`
+			}{
+				Enabled: false,
+			},
 		},
 		Upstream: struct {
 			Host               string `json:"host"`
@@ -401,8 +425,8 @@ func TestMultipleClientsIntegration(t *testing.T) {
 
 	for i := 0; i < numClients; i++ {
 		server, client := net.Pipe()
-		defer server.Close()
-		defer client.Close()
+		defer func() { _ = server.Close() }()
+		defer func() { _ = client.Close() }()
 
 		cl := NewClient(client, cfg)
 		clients[i] = cl
@@ -524,8 +548,8 @@ func TestBroadcastToClients(t *testing.T) {
 	numClients := 3
 	for i := 0; i < numClients; i++ {
 		server, client := net.Pipe()
-		defer server.Close()
-		defer client.Close()
+		defer func() { _ = server.Close() }()
+		defer func() { _ = client.Close() }()
 
 		cl := NewClient(client, cfg)
 
@@ -542,21 +566,4 @@ func TestBroadcastToClients(t *testing.T) {
 	if clientCount != numClients {
 		t.Errorf("Expected %d clients, got %d", numClients, clientCount)
 	}
-}
-
-// Helper functions
-func int64Ptr(i int64) *int64 {
-	return &i
-}
-
-func getPortFromListener(listener net.Listener) int {
-	addr := listener.Addr().String()
-	_, portStr, _ := net.SplitHostPort(addr)
-	port := 0
-	if portStr != "" {
-		if p, err := net.LookupPort("tcp", portStr); err == nil {
-			port = p
-		}
-	}
-	return port
 }
